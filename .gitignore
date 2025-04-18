@@ -1,0 +1,6 @@
+# Ignore experimental directory
+experimental
+
+# Python files and directories
+*.pyc
+__pycache__
