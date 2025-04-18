@@ -17,6 +17,10 @@ ANT_WIDTH = ANT_LENGTH / 2.0 # For triangle base width
 ANT_RADIUS = ANT_LENGTH / 2.0 # Radius for collision detection
 K_PUSH = 0.6                  # How strongly ants push each other apart (0 to 1)
 
+PHEROMONE_RADIUS = ANT_LENGTH * 3.0 # How far the 'signal' reaches (tune me!)
+P_STOP_PER_NEIGHBOUR = 0.15         # Probability increase factor per resting neighbour (tune me!)
+                                   # Effectively: chance a single neighbour causes a stop per dt step.
+
 # <<< Wall Following Parameters >>>
 WALL_ZONE_WIDTH = ANT_LENGTH * 1.5 # How far from the wall the turning response starts
 WALL_TURN_STRENGTH = 1.8          # How strongly ants turn to align (rad/sec) - TUNE ME!
@@ -53,8 +57,6 @@ time_text_artist = None
 
 # --- Initialization ---
 
-# <<< FIX for JIT: Moved draw_durations BEFORE update_step >>>
-# <<< FIX for JIT: Removed num_ants arg, uses global NUM_ANTS >>>
 def draw_durations(key, mean, std): # Removed num_ants argument
     """Draws durations from Normal dist, clipped at MIN_STATE_DURATION."""
     # Use the global NUM_ANTS constant for the shape
@@ -108,7 +110,6 @@ def wrap_angle(angle):
 @jax.jit
 def update_step(state, key, dt):
     """Performs one vectorized update step using state machine and wall avoidance."""
-    # <<< Needs num_ants for collision logic >>>
     num_ants = state['position'].shape[0]
     positions = state['position']
     behavioral_state = state['behavioral_state']
@@ -116,27 +117,68 @@ def update_step(state, key, dt):
     current_state_duration = state['current_state_duration']
     angles = state['angle'] # Ant's current heading angle
 
-    # --- 1. State Transition Logic ---
-    key, key_dur_rest, key_dur_burst, key_speed, key_turn, key_collision = random.split(key, 6)
+    # --- 0. Split Keys ---
+    # Need one more key for the pheromone stop roll
+    key, key_dur_rest, key_dur_burst, key_speed, key_turn, key_collision, key_pheromone_stop = random.split(key, 7)
+
+    # --- 1. Pheromone Influence Calculation --- <<< NEW BLOCK >>>
+
+    # Identify which ants are resting (emitting pheromone)
+    is_resting_emitter = (behavioral_state == STATE_RESTING)
+
+    # Calculate pairwise distances (as used in collision)
+    delta_x_pair = positions[:, 0, None] - positions[None, :, 0]
+    delta_y_pair = positions[:, 1, None] - positions[None, :, 1]
+    distances_sq_pair = delta_x_pair**2 + delta_y_pair**2
+    distances_pair = jnp.sqrt(distances_sq_pair)
+
+    # Determine which ants are within pheromone radius of each other
+    within_radius = (distances_pair < PHEROMONE_RADIUS)
+
+    # Create a matrix where True indicates ant j is resting and within radius of ant i
+    # Start with the within_radius mask
+    # Then mask based on whether ant j is resting (apply to columns)
+    pheromone_signal_matrix = jnp.where(within_radius, is_resting_emitter[None, :], False)
+
+    # Exclude self-influence (set diagonal to False)
+    n = pheromone_signal_matrix.shape[0]
+    mask = ~jnp.eye(n, dtype=bool)
+    pheromone_signal_matrix = jnp.where(mask, pheromone_signal_matrix, False)
+    # pheromone_signal_matrix = jnp.fill_diagonal(pheromone_signal_matrix, False)
+
+    # Count emitting neighbours for each ant (sum across columns for each row i)
+    num_resting_neighbours = jnp.sum(pheromone_signal_matrix, axis=1)
+
+    # Calculate probability of stopping due to pheromone for *moving* ants
+    # Using model: Prob = 1 - (1 - P_indiv)^N --> chance that *at least one* neighbour causes stop
+    # Avoid potential floating point issue if P_STOP_PER_NEIGHBOUR is exactly 0 or 1
+    prob_stop_pheromone = 1.0 - (1.0 - P_STOP_PER_NEIGHBOUR)**num_resting_neighbours
+
+    # Roll the dice for stopping due to pheromone
+    rand_stop = random.uniform(key_pheromone_stop, (num_ants,))
+    stops_due_to_pheromone = (behavioral_state == STATE_MOVING_BURST) & (rand_stop < prob_stop_pheromone)
+
+
+    # --- 2. State Transition Logic ---
     next_time_in_state = time_in_state + dt
     should_transition = (next_time_in_state >= current_state_duration)
     next_behavioral_state = jnp.where(should_transition, 1 - behavioral_state, behavioral_state)
-    # <<< FIX for JIT: Call draw_durations without num_ants >>>
+    
     new_rest_durations = draw_durations(key_dur_rest, MEAN_REST_DURATION, STD_REST_DURATION)
     new_burst_durations = draw_durations(key_dur_burst, MEAN_BURST_DURATION, STD_BURST_DURATION)
     duration_for_next_state = jnp.where(next_behavioral_state == STATE_RESTING, new_rest_durations, new_burst_durations)
     next_current_state_duration = jnp.where(should_transition, duration_for_next_state, current_state_duration)
     final_time_in_state = jnp.where(should_transition, 0.0, next_time_in_state)
 
-    # --- 2. State-Dependent Behavior (Speed and Base Turning) ---
+
+    # --- 3. State-Dependent Behavior (Speed and Base Turning) ---
     burst_speeds = jnp.maximum(0.0, MEAN_BURST_SPEED + random.normal(key_speed, (NUM_ANTS,)) * STD_BURST_SPEED)
     current_speed = jnp.where(next_behavioral_state == STATE_MOVING_BURST, burst_speeds, 0.0)
-
-    # Base Turning Noise
     burst_turn_noise = random.normal(key_turn, (NUM_ANTS,)) * TURN_RATE_STD * dt
     base_turn = jnp.where(next_behavioral_state == STATE_MOVING_BURST, burst_turn_noise, 0.0)
 
-    # --- 3. Wall Avoidance / Following Turning --- <<< INSERTED BLOCK >>>
+
+    # --- 4. Wall Avoidance / Following Turning --- <<< INSERTED BLOCK >>>
     dist_from_center = jnp.linalg.norm(positions, axis=1)
     in_wall_zone = (dist_from_center > (ARENA_RADIUS - WALL_ZONE_WIDTH))
     apply_wall_turn = in_wall_zone & (next_behavioral_state == STATE_MOVING_BURST)
@@ -163,7 +205,8 @@ def update_step(state, key, dt):
     # Update angles using the combined turn
     new_angles = wrap_angle(angles + total_turn) # <<< Use total_turn >>>
 
-    # --- 4. Movement, Collision, Boundary ---
+
+    # --- 5. Movement, Collision, Boundary ---
     vx = current_speed * jnp.cos(new_angles)
     vy = current_speed * jnp.sin(new_angles)
     velocity = jnp.stack([vx, vy], axis=-1)
