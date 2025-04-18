@@ -24,9 +24,9 @@ PHEROMONE_RADIUS = ANT_LENGTH * 3.0 # How far the 'signal' reaches (tune me!)
 # The overall probability increases with more neighbours (see calculation below).
 P_STOP_PER_NEIGHBOUR = 0.15
 
-# <<< Wall Following Parameters >>>
+# <<< Wall Interaction Parameters >>>
 WALL_ZONE_WIDTH = ANT_LENGTH * 1.5 # How far from the wall the turning response starts
-WALL_TURN_STRENGTH = 1.8          # How strongly ants turn to align (rad/sec) - TUNE ME!
+WALL_AVOID_STRENGTH = 1.8          # How strongly ants turn towards center (rad/sec) - TUNE ME!
 
 # Arena will be centered at (0,0)
 WINDOW_PADDING = 2.0
@@ -39,7 +39,7 @@ STATE_RESTING = 0
 STATE_MOVING_BURST = 1
 
 # State durations and burst speed parameters
-MEAN_REST_DURATION = 3.0   # Average time (in sim time units) to rest
+MEAN_REST_DURATION = 2.0   # Average time (in sim time units) to rest
 STD_REST_DURATION = 0.5
 MEAN_BURST_DURATION = 4.0  # Average time (in sim time units) for a movement burst
 STD_BURST_DURATION = 1.0
@@ -52,7 +52,7 @@ TURN_RATE_STD = 1.2
 
 # Animation Parameters
 SIMULATION_STEPS = 500
-FRAME_INTERVAL = 25   # Reduced for smoother animation attempt
+FRAME_INTERVAL = 10   # Reduced for smoother animation attempt
 
 # --- Global state for animation artists ---
 ant_patches = []
@@ -224,18 +224,20 @@ def update_step(state, key, dt):
     safe_y = jnp.where(dist_from_center < 1e-6, 0.0, pos_y)
     radial_angle = jnp.arctan2(safe_y, safe_x)
 
-    # Calculate desired tangent angle (counter-clockwise) and angle error
-    tangent_angle_ccw = wrap_angle(radial_angle + jnp.pi / 2.0)
-    # Angle error: difference between current angle and desired tangent angle
-    angle_error = wrap_angle(angles - tangent_angle_ccw)
+    # Calculate desired angle towards the center (0,0)
+    # This is 180 degrees (pi radians) opposite to the radial angle
+    desired_angle_to_center = wrap_angle(radial_angle + jnp.pi)
 
-    # Calculate wall turn magnitude: Proportional to error, applied over dt
-    # We turn *opposite* to the sign of the error to correct it
-    # Use jnp.sign to get direction (-1 or 1)
-    wall_turn_magnitude = -jnp.sign(angle_error) * WALL_TURN_STRENGTH * dt
+    # Calculate angle error relative to the center direction
+    angle_error_to_center = wrap_angle(angles - desired_angle_to_center)
 
-    # Combine base turn and conditional wall turn
-    total_turn = base_turn + jnp.where(apply_wall_turn, wall_turn_magnitude, 0.0)
+    # Calculate wall *avoidance* turn magnitude
+    # Turn opposite to the sign of the error to correct towards the center angle
+    # Strength is controlled by WALL_AVOID_STRENGTH
+    wall_avoid_turn_magnitude = -jnp.sign(angle_error_to_center) * WALL_AVOID_STRENGTH * dt
+
+    # Combine base random turn and conditional wall avoidance turn
+    total_turn = base_turn + jnp.where(apply_wall_turn, wall_avoid_turn_magnitude, 0.0)
 
     # Update angles using the combined turn
     new_angles = wrap_angle(angles + total_turn)
