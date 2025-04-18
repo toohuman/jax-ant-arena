@@ -1,6 +1,7 @@
 # Ignore experimental directory
 experimental
 data
+visualisation
 
 # Python files and directories
 *.pyc

@@ -9,6 +9,7 @@ import tqdm
 # Need partial for static arguments if we chose that route, but we'll use globals
 # from functools import partial
 
+
 # --- Simulation Parameters ---
 NUM_ANTS = 64
 ARENA_RADIUS = 50.0  # mm
@@ -17,22 +18,29 @@ ANT_WIDTH = ANT_LENGTH / 2.0 # For triangle base width
 ANT_RADIUS = ANT_LENGTH / 2.0 # Radius for collision detection
 K_PUSH = 0.6                  # How strongly ants push each other apart (0 to 1)
 
-# <<< PHEROMONE >>> Parameters for Arrestant Pheromone
-PHEROMONE_RADIUS = ANT_LENGTH * 3.0 # How far the 'signal' reaches (tune me!)
-# <<< PHEROMONE >>> Probability increase factor per resting neighbour
-# This represents the probability that *one* specific neighbour causes a stop in one dt.
-# The overall probability increases with more neighbours (see calculation below).
-P_STOP_PER_NEIGHBOUR = 0.15
-
-# <<< Wall Interaction Parameters >>>
-WALL_ZONE_WIDTH = ANT_LENGTH * 1.5 # How far from the wall the turning response starts
-WALL_AVOID_STRENGTH = 1.8          # How strongly ants turn towards center (rad/sec) - TUNE ME!
-
+# Animation Parameters
+SIMULATION_STEPS = 500
+FRAME_INTERVAL = 10   # Reduced for smoother animation attempt
 # Arena will be centered at (0,0)
 WINDOW_PADDING = 2.0
 WINDOW_SIZE = 2 * (ARENA_RADIUS + WINDOW_PADDING)
 
 DT = 0.1  # Simulation time step (arbitrary units)
+
+# <<< PHEROMONE >>> Parameters for Arrestant Pheromone
+PHEROMONE_RADIUS = ANT_LENGTH * 3.0 # How far the 'signal' reaches (tune me!)
+# <<< PHEROMONE >>> Sigmoid function parameters for stopping probability based on signal strength
+PHEROMONE_THRESHOLD = 1.5 # Signal strength (~num neighbours) for 50% stop probability (must be > 1.0) - TUNE ME!
+PHEROMONE_STEEPNESS = 4.0 # Controls how sharp the transition is around the threshold - TUNE ME!
+MAX_PHEROMONE_STRENGTH = 1.0  # Max contribution of a single resting ant (scales the signal)
+PHEROMONE_GROWTH_RATE = 0.02 # How fast pheromone strength increases (related to 1/time units) - TUNE ME!
+PHEROMONE_MIDPOINT_TIME = SIMULATION_STEPS / 2 # Time at which strength reaches 50% max - TUNE ME!
+
+
+# <<< Wall Interaction Parameters >>>
+WALL_ZONE_WIDTH = ANT_LENGTH * 1.5 # How far from the wall the turning response starts
+WALL_AVOID_STRENGTH = 1.2          # How strongly ants turn towards center (rad/sec) - TUNE ME!
+
 
 # State constants
 STATE_RESTING = 0
@@ -50,13 +58,12 @@ MIN_STATE_DURATION = 0.1   # Minimum duration for any state bout (in sim time un
 # Turning rate during bursts
 TURN_RATE_STD = 1.2
 
-# Animation Parameters
-SIMULATION_STEPS = 500
-FRAME_INTERVAL = 10   # Reduced for smoother animation attempt
-
 # --- Global state for animation artists ---
 ant_patches = []
 time_text_artist = None
+
+# --- Animation Saving Flag ---
+SAVE_ANIMATION = True  # Set to True to save animation as GIF, False to only display
 
 # --- Initialization ---
 
@@ -107,7 +114,7 @@ def wrap_angle(angle):
 # --- Core Update Logic ---
 
 @jax.jit
-def update_step(state, key, dt):
+def update_step(state, key, t, dt):
     """Performs one vectorized update step using state machine, pheromones, and wall avoidance."""
     num_ants = state['position'].shape[0] # Use state size directly
     positions = state['position']
@@ -149,12 +156,21 @@ def update_step(state, key, dt):
     # Count emitting neighbours for each ant (sum across columns for each row i)
     num_resting_neighbours = jnp.sum(pheromone_signal_matrix, axis=1)
 
-    # Calculate probability of stopping due to pheromone for *moving* ants
-    # Model: Prob = 1 - (1 - P_indiv)^N
-    # This is the probability that *at least one* resting neighbour triggers a stop.
-    # It ensures Prob approaches 1 as N increases, and is 0 if N=0.
-    # Add small epsilon to P_STOP_PER_NEIGHBOUR inside the power to avoid potential NaN if P_STOP_PER_NEIGHBOUR = 1
-    prob_stop_pheromone = 1.0 - (1.0 - jnp.minimum(0.99999, P_STOP_PER_NEIGHBOUR))**num_resting_neighbours
+    # --- Calculate time-dependent individual pheromone strength ---
+    # Use a sigmoid growth function for individual ant strength over time 't'
+    strength_exponent = -PHEROMONE_GROWTH_RATE * (t - PHEROMONE_MIDPOINT_TIME)
+    # Clip exponent for stability
+    clipped_strength_exponent = jnp.clip(strength_exponent, -20.0, 20.0) # Avoid exp overflow
+    current_individual_strength = MAX_PHEROMONE_STRENGTH / (1.0 + jnp.exp(clipped_strength_exponent))
+
+    # --- Calculate probability of stopping using a sigmoid based on signal strength ---
+    # Total signal strength = num_neighbours * time_dependent_strength
+    signal_strength = num_resting_neighbours.astype(jnp.float32) * current_individual_strength
+    # Calculate probability using a sigmoid function centered around the threshold
+    exponent = -PHEROMONE_STEEPNESS * (signal_strength - PHEROMONE_THRESHOLD)
+    # Clip exponent to avoid potential overflow/underflow in jnp.exp
+    clipped_exponent = jnp.clip(exponent, -20.0, 20.0)
+    prob_stop_pheromone = 1.0 / (1.0 + jnp.exp(clipped_exponent))
 
     # Roll the dice for stopping due to pheromone for each ant
     rand_stop = random.uniform(key_pheromone_stop, (num_ants,))
@@ -348,8 +364,11 @@ def update_animation(frame):
     global current_state, key, time_text_artist, ant_patches # Ensure access
     key, step_key = random.split(key)
 
+    # Calculate current simulation time to pass to update_step
+    current_sim_time = frame * DT
     # --- Update ant states ---
-    current_state = update_step(current_state, step_key, DT)
+    current_state = update_step(current_state, step_key, current_sim_time, DT)
+
 
     # --- Update visualization ---
     positions = current_state['position']
@@ -397,6 +416,12 @@ def update_animation(frame):
 
 # --- Run Simulation ---
 setup_visualization() # Call AFTER initializing state
-ani = animation.FuncAnimation(fig, update_animation, frames=SIMULATION_STEPS,
+ani = animation.FuncAnimation(fig, update_animation, frames=int(SIMULATION_STEPS/DT),
                               interval=FRAME_INTERVAL, blit=True, repeat=False)
+
+if SAVE_ANIMATION:
+    # Save as GIF using Pillow writer
+    ani.save('visualisation/ant_simulation.gif', writer='pillow', fps=int(1000/FRAME_INTERVAL))
+    print('Animation saved as ant_simulation.gif')
+
 plt.show()
