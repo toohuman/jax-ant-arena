@@ -1,62 +1,47 @@
 import jax
 import jax.numpy as jnp
 import jax.random as random
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-from matplotlib.patches import Polygon, Circle
-import math
-import tqdm
-# Need partial for static arguments if we chose that route, but we'll use globals
-# from functools import partial
 
 import os
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
-
 # --- Simulation Parameters ---
 NUM_ANTS = 64
 ARENA_RADIUS = 50.0  # mm
-ANT_LENGTH = 2.5     # mm (for visualization)
-ANT_WIDTH = ANT_LENGTH / 2.0 # For triangle base width
+ANT_LENGTH = 2.5     # mm (for visualization, but needed for ANT_RADIUS/WALL_ZONE)
+ANT_WIDTH = ANT_LENGTH / 2.0 # For triangle base width (viz)
 ANT_RADIUS = ANT_LENGTH / 2.0 # Radius for collision detection
 K_PUSH = 0.6                  # How strongly ants push each other apart (0 to 1)
 
-# Animation Parameters
-# --- Animation Saving Flag ---
-SAVE_ANIMATION = True  # Set to True to save animation as GIF, False to only display
-
-SIMULATION_STEPS = 500
-FRAME_INTERVAL = 10   # Reduced for smoother animation attempt
-# Arena will be centered at (0,0)
-WINDOW_PADDING = 2.0
-WINDOW_SIZE = 2 * (ARENA_RADIUS + WINDOW_PADDING)
+# Note: MAX_TIMESTEPS is primarily for animation length,
+# might be defined differently for batch runs. Keep here for now.
+MAX_TIMESTEPS = 500
 
 DT = 0.1  # Simulation time step (arbitrary units)
 
 # <<< PHEROMONE >>> Parameters for Arrestant Pheromone
 PHEROMONE_RADIUS = ANT_LENGTH * 3.0 # How far the 'signal' reaches (tune me!)
-# <<< PHEROMONE >>> Sigmoid function parameters for stopping probability based on signal strength
 PHEROMONE_THRESHOLD = 1.5 # Signal strength (~num neighbours) for 50% stop probability (must be > 1.0) - TUNE ME!
 PHEROMONE_STEEPNESS = 4.0 # Controls how sharp the transition is around the threshold - TUNE ME!
 MAX_PHEROMONE_STRENGTH = 1.0  # Max contribution of a single resting ant (scales the signal)
 PHEROMONE_GROWTH_RATE = 0.02 # How fast pheromone strength increases (related to 1/time units) - TUNE ME!
-PHEROMONE_MIDPOINT_TIME = SIMULATION_STEPS / 2 # Time at which strength reaches 50% max - TUNE ME!
-
+# Calculate PHEROMONE_MIDPOINT_TIME based on total simulation time
+PHEROMONE_MIDPOINT_TIME = (MAX_TIMESTEPS * DT) / 2 # Midpoint in actual simulation time units
 
 # <<< Wall Interaction Parameters >>>
 WALL_ZONE_WIDTH = ANT_LENGTH * 1.5 # How far from the wall the turning response starts
-WALL_AVOID_STRENGTH = 1.2          # How strongly ants turn towards center (rad/sec) - TUNE ME!
-
+# Example reduced value from previous step
+WALL_AVOID_STRENGTH = 0.9          # How strongly ants turn towards center (rad/sec) - TUNE ME!
 
 # State constants
 STATE_RESTING = 0
 STATE_MOVING_BURST = 1
 
 # State durations and burst speed parameters
-MEAN_REST_DURATION = 2.0   # Average time (in sim time units) to rest
-STD_REST_DURATION = 0.5
+MEAN_REST_DURATION = 3.0   # Average time (in sim time units) to rest
+STD_REST_DURATION = 1.5
 MEAN_BURST_DURATION = 4.0  # Average time (in sim time units) for a movement burst
-STD_BURST_DURATION = 1.0
+STD_BURST_DURATION = 1.5
 MEAN_BURST_SPEED = 6.0     # Average speed during a burst (units per dt)
 STD_BURST_SPEED = 1.0
 MIN_STATE_DURATION = 0.1   # Minimum duration for any state bout (in sim time units)
@@ -64,52 +49,35 @@ MIN_STATE_DURATION = 0.1   # Minimum duration for any state bout (in sim time un
 # Turning rate during bursts
 TURN_RATE_STD = 1.2
 
-# --- Global state for animation artists ---
-ant_patches = []
-time_text_artist = None
-
 # --- Initialization ---
 
-# <<< Uses global NUM_ANTS >>>
 def draw_durations(key, mean, std):
     """Draws durations from Normal dist, clipped at MIN_STATE_DURATION."""
+    # Use NUM_ANTS defined above
     durations = mean + random.normal(key, (NUM_ANTS,)) * std
     return jnp.maximum(MIN_STATE_DURATION, durations)
 
-# <<< Uses global NUM_ANTS >>>
 def initialize_state(key, arena_radius):
     """Initializes the state of all ants with state machine variables."""
+    # Uses NUM_ANTS defined above
     key, pos_key, angle_key, state_key, duration_key = random.split(key, 5)
-
-    # Initial positions and angles
     radius = jnp.sqrt(random.uniform(pos_key, (NUM_ANTS,), minval=0, maxval=arena_radius**2))
     theta = random.uniform(pos_key, (NUM_ANTS,), minval=0, maxval=2 * jnp.pi)
     positions = jnp.stack([radius * jnp.cos(theta), radius * jnp.sin(theta)], axis=-1)
     angles = random.uniform(angle_key, (NUM_ANTS,), minval=0, maxval=2 * jnp.pi)
-
-    # Initial behavioral state
     initial_states = random.bernoulli(state_key, 0.5, (NUM_ANTS,)).astype(jnp.int32)
-
-    # Initial time in state
     time_in_state = jnp.zeros(NUM_ANTS)
-
-    # Initial target durations
     key_r, key_b = random.split(duration_key)
     rest_durations = draw_durations(key_r, MEAN_REST_DURATION, STD_REST_DURATION)
     burst_durations = draw_durations(key_b, MEAN_BURST_DURATION, STD_BURST_DURATION)
     initial_durations = jnp.where(initial_states == STATE_RESTING, rest_durations, burst_durations)
-
     state = {
-        'position': positions,
-        'angle': angles,
-        'speed': jnp.zeros(NUM_ANTS), # Start stationary regardless of state
-        'behavioral_state': initial_states,
-        'time_in_state': time_in_state,
+        'position': positions, 'angle': angles, 'speed': jnp.zeros(NUM_ANTS),
+        'behavioral_state': initial_states, 'time_in_state': time_in_state,
         'current_state_duration': initial_durations
     }
     return state
 
-# <<< Added wrap_angle helper function >>>
 def wrap_angle(angle):
     """Helper function to wrap angles to [-pi, pi]"""
     return (angle + jnp.pi) % (2 * jnp.pi) - jnp.pi
@@ -322,111 +290,3 @@ def update_step(state, key, t, dt):
         'current_state_duration': final_current_state_duration
     }
     return next_state
-
-# --- Visualization Setup ---
-fig, ax = plt.subplots(figsize=(8, 8))
-# Adjust margins - values closer to 0/1 fill more space
-fig.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.02)
-
-def setup_visualization():
-    """Sets up the static parts of the plot and initializes patches and text."""
-    global ant_patches, time_text_artist # Use global references
-    ant_patches = [] # Reset list
-
-    ax.set_xlim(-WINDOW_SIZE / 2, WINDOW_SIZE / 2)
-    ax.set_ylim(-WINDOW_SIZE / 2, WINDOW_SIZE / 2)
-    ax.set_aspect('equal', adjustable='box')
-    ax.set_xlabel("X (mm)")
-    ax.set_ylabel("Y (mm)")
-    fig.subplots_adjust(left=0.1, right=0.90, top=0.90, bottom=0.1)
-
-    # Draw Arena Boundary (Filled)
-    arena_circle = Circle((0, 0), float(ARENA_RADIUS),
-                          facecolor='lavender', edgecolor='darkgrey', fill=True, zorder=0, linewidth=1)
-    ax.add_patch(arena_circle)
-
-    # Initialize Time Step Text
-    time_text_artist = ax.text(0.02, 0.98, '', transform=ax.transAxes, fontsize=10,
-                                 color='black', verticalalignment='top', zorder=5)
-
-    # Create initial patch objects for ants
-    for i in range(NUM_ANTS):
-        initial_vertices = [[ANT_LENGTH/2, 0], [-ANT_LENGTH/2, ANT_WIDTH/2], [-ANT_LENGTH/2, -ANT_WIDTH/2]]
-        ant_poly = Polygon(initial_vertices, closed=True, color='black', zorder=1) # Start black
-        ax.add_patch(ant_poly)
-        ant_patches.append(ant_poly)
-
-# --- Animation Function ---
-# Initialize PRNG Key and State *before* setup
-key = random.PRNGKey(0)
-key, init_key = random.split(key)
-current_state = initialize_state(init_key, ARENA_RADIUS)
-
-def update_animation(frame):
-    """Updates the animation frame."""
-    global current_state, key, time_text_artist, ant_patches # Ensure access
-    key, step_key = random.split(key)
-
-    # Calculate current simulation time to pass to update_step
-    current_sim_time = frame * DT
-    # --- Update ant states ---
-    current_state = update_step(current_state, step_key, current_sim_time, DT)
-
-
-    # --- Update visualization ---
-    positions = current_state['position']
-    angles = current_state['angle']
-    behavioral_states = current_state['behavioral_state'] # Get current state
-
-    updated_artists = []
-    for i in range(NUM_ANTS):
-        pos = positions[i]
-        angle = angles[i]
-
-        # Calculate triangle vertices
-        # Use numpy math functions here as matplotlib expects standard floats
-        tip_x = pos[0] + (ANT_LENGTH / 2) * math.cos(angle)
-        tip_y = pos[1] + (ANT_LENGTH / 2) * math.sin(angle)
-        base_center_x = pos[0] - (ANT_LENGTH / 2) * math.cos(angle)
-        base_center_y = pos[1] - (ANT_LENGTH / 2) * math.sin(angle)
-        dx_base = (ANT_WIDTH / 2) * math.sin(angle)
-        dy_base = -(ANT_WIDTH / 2) * math.cos(angle)
-        base1_x = base_center_x + dx_base
-        base1_y = base_center_y + dy_base
-        base2_x = base_center_x - dx_base
-        base2_y = base_center_y - dy_base
-        # Convert JAX array vertices to list of lists for Polygon
-        vertices = [[float(tip_x), float(tip_y)],
-                    [float(base1_x), float(base1_y)],
-                    [float(base2_x), float(base2_y)]]
-
-        # Update existing patch vertices
-        ant_patches[i].set_xy(vertices)
-
-        # <<< Update color based on state >>>
-        state_is_resting = behavioral_states[i] == STATE_RESTING
-        # Example: Red for resting, Black for moving
-        color = 'red' if state_is_resting else 'black'
-        ant_patches[i].set_color(color)
-
-        updated_artists.append(ant_patches[i])
-
-    # Update time step text
-    time_text_artist.set_text(f't = {(frame + 1) * DT:.1f}') # Show simulation time
-    updated_artists.append(time_text_artist)
-
-    return updated_artists
-
-# --- Run Simulation ---
-setup_visualization() # Call AFTER initializing state
-ani = animation.FuncAnimation(fig, update_animation, frames=int(SIMULATION_STEPS/DT),
-                              interval=FRAME_INTERVAL, blit=True, repeat=False)
-
-if SAVE_ANIMATION:
-    # Save as GIF using Pillow writer
-    visualisation_dir = os.path.join(PROJECT_ROOT, 'visualisation')
-    os.makedirs(visualisation_dir, exist_ok=True)  # Ensure the directory exists
-    ani.save(os.path.join(visualisation_dir, 'ant_simulation.gif'), writer='pillow', fps=int(FRAME_INTERVAL))
-    print('Animation saved as ant_simulation.gif')
-
-plt.show()

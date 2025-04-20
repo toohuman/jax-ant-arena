@@ -6,3 +6,7 @@ visualisation
 # Python files and directories
 *.pyc
 __pycache__
+
+# pixi environments
+.pixi
+*.egg-info
