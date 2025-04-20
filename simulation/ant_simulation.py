@@ -57,8 +57,8 @@ def draw_durations(key, mean, std):
     durations = mean + random.normal(key, (NUM_ANTS,)) * std
     return jnp.maximum(MIN_STATE_DURATION, durations)
 
-def initialize_state(key, arena_radius):
-    """Initializes the state of all ants with state machine variables."""
+def initialise_state(key, arena_radius):
+    """Initialises the state of all ants with state machine variables."""
     # Uses NUM_ANTS defined above
     key, pos_key, angle_key, state_key, duration_key = random.split(key, 5)
     radius = jnp.sqrt(random.uniform(pos_key, (NUM_ANTS,), minval=0, maxval=arena_radius**2))

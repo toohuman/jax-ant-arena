@@ -19,7 +19,7 @@ from ant_simulation import (
     # Constants needed
     STATE_RESTING,
     # Core functions
-    initialize_state, update_step, wrap_angle # wrap_angle might be needed if viz does calculations
+    initialise_state, update_step, wrap_angle # wrap_angle might be needed if viz does calculations
 )
 
 # --- Visualization Parameters ---
@@ -34,7 +34,7 @@ ant_patches = []
 time_text_artist = None
 key = random.PRNGKey(0) # Simulation random key
 key, init_key = random.split(key)
-current_state = initialize_state(init_key, ARENA_RADIUS) # Initial simulation state
+current_state = initialise_state(init_key, ARENA_RADIUS) # Initial simulation state
 
 # --- Visualization Setup ---
 def setup_visualization():
