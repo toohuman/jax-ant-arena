@@ -23,7 +23,7 @@ from ant_simulation import (
 )
 
 MAX_TIMESTEPS = 5000
-SAVE_ANIMATION = True
+SAVE_ANIMATION = False
 
 # --- Visualization Parameters ---
 FRAME_INTERVAL = int(DT * 100) # ms -> e.g., DT=0.1 gives 100ms for real-time view

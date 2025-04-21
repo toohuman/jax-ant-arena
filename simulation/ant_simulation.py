@@ -11,7 +11,7 @@ ARENA_RADIUS = 50.0  # mm
 ANT_LENGTH = 2.5     # mm (for visualization, but needed for ANT_RADIUS/WALL_ZONE)
 ANT_WIDTH = ANT_LENGTH / 2.0 # For triangle base width (viz)
 ANT_RADIUS = ANT_LENGTH / 2.0 # Radius for collision detection
-K_PUSH = 0.6                  # How strongly ants push each other apart (0 to 1)
+K_PUSH = 0.1                  # How strongly ants push each other apart (0 to 1)
 
 DT = 0.1  # Simulation time step (arbitrary units)
 
