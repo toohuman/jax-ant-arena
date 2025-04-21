@@ -7,6 +7,9 @@ visualisation
 *.pyc
 __pycache__
 
-# pixi environments
+# Pixi environments
 .pixi
 *.egg-info
+
+# MacOS
+.DS_Store

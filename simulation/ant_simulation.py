@@ -13,10 +13,6 @@ ANT_WIDTH = ANT_LENGTH / 2.0 # For triangle base width (viz)
 ANT_RADIUS = ANT_LENGTH / 2.0 # Radius for collision detection
 K_PUSH = 0.6                  # How strongly ants push each other apart (0 to 1)
 
-# Note: MAX_TIMESTEPS is primarily for animation length,
-# might be defined differently for batch runs. Keep here for now.
-MAX_TIMESTEPS = 500
-
 DT = 0.1  # Simulation time step (arbitrary units)
 
 # <<< PHEROMONE >>> Parameters for Arrestant Pheromone
@@ -25,8 +21,9 @@ PHEROMONE_THRESHOLD = 1.5 # Signal strength (~num neighbours) for 50% stop proba
 PHEROMONE_STEEPNESS = 4.0 # Controls how sharp the transition is around the threshold - TUNE ME!
 MAX_PHEROMONE_STRENGTH = 1.0  # Max contribution of a single resting ant (scales the signal)
 PHEROMONE_GROWTH_RATE = 0.02 # How fast pheromone strength increases (related to 1/time units) - TUNE ME!
-# Calculate PHEROMONE_MIDPOINT_TIME based on total simulation time
-PHEROMONE_MIDPOINT_TIME = (MAX_TIMESTEPS * DT) / 2 # Midpoint in actual simulation time units
+# Calculate PHEROMONE_MIDPOINT_TIME based on PHEROMONE_MAX_TIMESTEP
+PHEROMONE_MAX_TIMESTEP = 2500
+PHEROMONE_MIDPOINT_TIME = (PHEROMONE_MAX_TIMESTEP * DT) / 2 # Midpoint in actual simulation time units
 
 # <<< Wall Interaction Parameters >>>
 WALL_ZONE_WIDTH = ANT_LENGTH * 1.5 # How far from the wall the turning response starts
@@ -40,7 +37,7 @@ STATE_MOVING_BURST = 1
 # State durations and burst speed parameters
 MEAN_REST_DURATION = 3.0   # Average time (in sim time units) to rest
 STD_REST_DURATION = 1.5
-MEAN_BURST_DURATION = 4.0  # Average time (in sim time units) for a movement burst
+MEAN_BURST_DURATION = 7.0  # Average time (in sim time units) for a movement burst
 STD_BURST_DURATION = 1.5
 MEAN_BURST_SPEED = 6.0     # Average speed during a burst (units per dt)
 STD_BURST_SPEED = 1.0

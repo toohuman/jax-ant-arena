@@ -15,15 +15,18 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # --- Import core simulation components ---
 from ant_simulation import (
     # Parameters needed for setup/visualization
-    NUM_ANTS, ARENA_RADIUS, ANT_LENGTH, ANT_WIDTH, DT, MAX_TIMESTEPS,
+    NUM_ANTS, ARENA_RADIUS, ANT_LENGTH, ANT_WIDTH, DT,
     # Constants needed
     STATE_RESTING,
     # Core functions
     initialise_state, update_step, wrap_angle # wrap_angle might be needed if viz does calculations
 )
 
+MAX_TIMESTEPS = 5000
+SAVE_ANIMATION = True
+
 # --- Visualization Parameters ---
-FRAME_INTERVAL = 10   # Animation frame interval (ms)
+FRAME_INTERVAL = int(DT * 100) # ms -> e.g., DT=0.1 gives 100ms for real-time view
 WINDOW_PADDING = 2.0
 WINDOW_SIZE = 2 * (ARENA_RADIUS + WINDOW_PADDING)
 
@@ -138,12 +141,19 @@ if __name__ == "__main__": # Standard practice for executable scripts
     print("Setting up visualization...")
     setup_visualization() # Call AFTER initializing state globally
     print("Starting animation...")
-    # Note: The number of frames is determined by MAX_TIMESTEPS imported from core.
-    # Consider if MAX_TIMESTEPS should be defined locally in visualise_sim.py
-    # or if it should always match the core definition. Let's use the imported one.
-    num_frames = MAX_TIMESTEPS # Total steps match core definition for now
+    # Note: The number of frames is determined by MAX_TIMESTEPS.
+    num_frames = MAX_TIMESTEPS
 
     ani = animation.FuncAnimation(fig, update_animation, frames=num_frames,
                                   interval=FRAME_INTERVAL, blit=True, repeat=False)
     plt.show()
     print("Animation finished.")
+
+    if SAVE_ANIMATION:
+        print("Saving animation to {}".format(os.path.join(PROJECT_ROOT, "visualisation")))
+        # Save as .mp4 in the visualisation directory
+        speed_multiplier = 3.0
+        save_fps = int(speed_multiplier * (1 / DT)) # e.g., 3 * (1/0.1) = 30 fps for 3x speed
+        ani.save(os.path.join(PROJECT_ROOT, "visualisation", "ant_simulation.mp4"),
+                 writer="ffmpeg", fps=save_fps
+        )
