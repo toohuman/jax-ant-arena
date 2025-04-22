@@ -20,7 +20,7 @@ K_PUSH = 0.1                  # How strongly ants push each other apart (0 to 1)
 DT = 0.1  # Simulation time step (arbitrary units)
 
 # <<< PHEROMONE >>> Parameters for Arrestant Pheromone
-PHEROMONE_RADIUS = ANT_LENGTH * 3.0 # How far the 'signal' reaches
+PHEROMONE_RADIUS = ANT_LENGTH * 2.0 # How far the 'signal' reaches
 PHEROMONE_THRESHOLD = 1.5 # Signal strength (~num neighbours) for 50% stop probability (must be > 1.0)
 PHEROMONE_STEEPNESS = 4.0 # Controls how sharp the transition is around the threshold
 MAX_PHEROMONE_STRENGTH = 1.0  # Max contribution of a single resting ant (scales the signal)
