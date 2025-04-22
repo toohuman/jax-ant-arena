@@ -1,5 +1,5 @@
 # visualise_sim.py
-# Handles the visualization of the ant simulation using Matplotlib.
+# Handles the visualisation of the ant simulation using Matplotlib.
 # Imports core logic from ant_simulation.py
 
 import matplotlib.pyplot as plt
@@ -8,6 +8,8 @@ from matplotlib.patches import Polygon, Circle
 import math
 import jax.numpy as jnp # Often useful for state manipulation
 import jax.random as random
+import numpy as np
+from tqdm import tqdm # Progress bar for simulation loop
 
 import os
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -19,25 +21,27 @@ from ant_simulation import (
     initialise_state, update_step
 )
 
-MAX_TIMESTEPS = int(500 / DT) # Simulation time in "seconds"
-SAVE_ANIMATION = False
+# --- Simulation & Video Parameters ---
+MAX_SIM_TIME = 500.0 # Max simulation time to record (e.g., 500 seconds)
+SAVE_ANIMATION = True # Assuming we always save when running this script version
+VIDEO_FPS = 30 # Desired output video frame rate
+CONTENT_SPEED_FACTOR = 16.0 # Simulation speed shown in video (e.g., 4x real-time)
+VIDEO_FILENAME = f"ant_simulation_{int(CONTENT_SPEED_FACTOR)}x_{VIDEO_FPS}fps.mp4" # Descriptive filename
 
-# --- Visualization Parameters ---
-FRAME_INTERVAL = int(DT * 100) # ms -> e.g., DT=0.1 gives 100ms for real-time view
+# --- Visualisation Parameters ---
 WINDOW_PADDING = 2.0
 WINDOW_SIZE = 2 * (ARENA_RADIUS + WINDOW_PADDING)
 
-# --- Global state for animation artists & simulation ---
-# (Using globals here for simplicity with FuncAnimation)
+
+# --- Variables for storing simulation history ---
 fig, ax = plt.subplots(figsize=(8, 8))
 ant_patches = []
 time_text_artist = None
-key = random.PRNGKey(0) # Simulation random key
-key, init_key = random.split(key)
-current_state = initialise_state(init_key, ARENA_RADIUS) # Initial simulation state
+simulation_history = [] # List to store relevant state data for each step
+total_sim_steps = 0
 
-# --- Visualization Setup ---
-def setup_visualization():
+# --- Visualisation Setup ---
+def setup_visualisation():
     """Sets up the static parts of the plot and initializes patches and text."""
     global ant_patches, time_text_artist # Use global references
 
@@ -70,26 +74,26 @@ def setup_visualization():
         ax.add_patch(ant_poly)
         ant_patches.append(ant_poly)
 
-# --- Animation Function ---
-def update_animation(frame):
-    """Updates the animation frame."""
-    global current_state, key, time_text_artist, ant_patches # Ensure access to globals
+# --- Function to update plot from stored history ---
+def update_frame_from_history(frame_index):
+    """Updates plot artists based on pre-computed simulation history."""
+    global simulation_history, time_text_artist, ant_patches, total_sim_steps
 
-    # Get a new key for this step
-    key, step_key = random.split(key)
+    # Calculate the simulation step index corresponding to this video frame
+    # Video time progresses linearly: frame_index / VIDEO_FPS
+    # Simulation time progresses faster: video_time * CONTENT_SPEED_FACTOR
+    # Corresponding simulation step index: sim_time / DT
+    target_video_time = frame_index / VIDEO_FPS
+    target_sim_time = target_video_time * CONTENT_SPEED_FACTOR
+    # Use round() to pick the nearest simulation step, clamp index to bounds
+    sim_step_index = min(total_sim_steps - 1, int(round(target_sim_time / DT)))
 
-    # Calculate current simulation time to pass to update_step
-    # Use frame number directly if PHEROMONE_MIDPOINT_TIME was based on steps
-    # If PHEROMONE_MIDPOINT_TIME uses DT, use frame * DT
-    current_sim_time = frame * DT
-    # --- Update ant states by calling the imported core function ---
-    current_state = update_step(current_state, step_key, current_sim_time, DT)
-
-    # --- Update visualization ---
-    positions = current_state['position']
-    angles = current_state['angle']
-    behavioral_states = current_state['behavioral_state'] # Get current state
-
+    # Retrieve the state data for that simulation step
+    state_data = simulation_history[sim_step_index]
+    positions = state_data['position'] # Should be numpy arrays now
+    angles = state_data['angle']
+    behavioral_states = state_data['behavioral_state']
+    actual_sim_time = state_data['sim_time'] # Get the actual time for accurate display
     updated_artists = []
     for i in range(NUM_ANTS):
         pos = positions[i]
@@ -122,37 +126,66 @@ def update_animation(frame):
         updated_artists.append(ant_patches[i])
 
     # Update time step text - display simulation time
-    time_text_artist.set_text(f't = {current_sim_time:.1f}')
+    time_text_artist.set_text(f't = {actual_sim_time:.1f}')
     updated_artists.append(time_text_artist)
-
-    # Add the axes background to the list of updated artists if blitting.
-    # This might be needed if clearing the axes (`ax.cla()`) but usually
-    # handled automatically by blit=True if patches cover previous frame.
-    # If flickering occurs, might need ax.draw_artist(ax.patch) first
-    # and return ax.patch in list. For now, assume patches cover ok.
 
     return updated_artists # Return list of modified artists for blitting
 
-# --- Run Simulation Visualization ---
-if __name__ == "__main__": # Standard practice for executable scripts
-    print("Setting up visualization...")
-    setup_visualization() # Call AFTER initializing state globally
-    print("Starting animation...")
-    # Note: The number of frames is determined by MAX_TIMESTEPS.
-    num_frames = MAX_TIMESTEPS
 
-    ani = animation.FuncAnimation(fig, update_animation, frames=num_frames,
-                                  interval=FRAME_INTERVAL, blit=True, repeat=False)
-    print("Animation finished.")
+# --- Run Simulation Visualisation ---
+if __name__ == "__main__": # Standard practice for executable scripts
+    # Pre-compute simulation history
+    print("Pre-computing simulation...")
+    key = random.PRNGKey(0)
+    key, init_key = random.split(key)
+    current_state = initialise_state(init_key, ARENA_RADIUS)
+    # Calculate total steps based on MAX_SIM_TIME
+    total_sim_steps = int(MAX_SIM_TIME / DT)
+    simulation_history = [] # Clear/initialize history storage
+
+    for step in tqdm(range(total_sim_steps), desc="Simulating steps", unit="step"):
+        current_sim_time = step * DT
+        # Store relevant state data (convert JAX arrays to NumPy for safety/ease)
+        state_to_store = {
+            'position': np.array(current_state['position']),
+            'angle': np.array(current_state['angle']),
+            'behavioral_state': np.array(current_state['behavioral_state']),
+            'sim_time': current_sim_time # Store the precise time for this state
+        }
+        simulation_history.append(state_to_store)
+
+        # Update state for the *next* step
+        key, step_key = random.split(key)
+        current_state = update_step(current_state, step_key, current_sim_time, DT)
+
+    print(f"Simulation pre-computation finished. Stored {len(simulation_history)} states.")
+
+    print("Setting up visualisation...")
+    setup_visualisation() # Creates the plot elements and populates ant_patches
+
+    # --- Create animation using history ---
+    print("Generating animation frames...")
+    # Calculate total video frames needed based on desired duration and FPS
+    total_video_duration_sec = MAX_SIM_TIME / CONTENT_SPEED_FACTOR
+    total_video_frames = int(round(total_video_duration_sec * VIDEO_FPS))
+    print(f"  Will generate {total_video_frames} frames for video...")
+
+    # Use the new update function and calculated frame count
+    # interval doesn't matter much for saving, blit=True is good for performance
+    ani = animation.FuncAnimation(fig, update_frame_from_history, frames=total_video_frames,
+                                  blit=True, repeat=False)
 
     if SAVE_ANIMATION:
-        print("Saving animation to {}".format(os.path.join(PROJECT_ROOT, "visualisation")))
-        # Save as .mp4 in the visualisation directory
-        speed_multiplier = 3.0
-        save_fps = int(speed_multiplier * (1 / DT)) # e.g., 3 * (1/0.1) = 30 fps for 3x speed
-        ani.save(os.path.join(PROJECT_ROOT, "visualisation", "ELU_ant_simulation.mp4"),
-                 writer="ffmpeg", fps=save_fps
-        )
+        save_dir = os.path.join(PROJECT_ROOT, "visualisation")
+        os.makedirs(save_dir, exist_ok=True) # Ensure directory exists
+        save_path = os.path.join(save_dir, VIDEO_FILENAME)
+        print(f"Saving animation to {save_path} at {VIDEO_FPS} FPS...")
+
+        # Save using the desired VIDEO_FPS. Adjust dpi for resolution/quality.
+        ani.save(save_path, writer="ffmpeg", fps=VIDEO_FPS, dpi=150)
+        print("Animation saved.")
     else:
-        plt.show()
+        print("Displaying animation (display speed may not match real-time)...")
+        plt.show() # Show plot window if not saving
+
     print("Done.")
