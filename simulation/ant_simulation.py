@@ -1,9 +1,13 @@
 import jax
 import jax.numpy as jnp
 import jax.random as random
+import jax.nn
 
 import os
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+try:
+    PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+except NameError:
+    PROJECT_ROOT = os.path.abspath('..') # Or provide a default path
 
 # --- Simulation Parameters ---
 NUM_ANTS = 64
@@ -16,19 +20,18 @@ K_PUSH = 0.1                  # How strongly ants push each other apart (0 to 1)
 DT = 0.1  # Simulation time step (arbitrary units)
 
 # <<< PHEROMONE >>> Parameters for Arrestant Pheromone
-PHEROMONE_RADIUS = ANT_LENGTH * 3.0 # How far the 'signal' reaches (tune me!)
-PHEROMONE_THRESHOLD = 1.5 # Signal strength (~num neighbours) for 50% stop probability (must be > 1.0) - TUNE ME!
-PHEROMONE_STEEPNESS = 4.0 # Controls how sharp the transition is around the threshold - TUNE ME!
+PHEROMONE_RADIUS = ANT_LENGTH * 3.0 # How far the 'signal' reaches
+PHEROMONE_THRESHOLD = 1.5 # Signal strength (~num neighbours) for 50% stop probability (must be > 1.0)
+PHEROMONE_STEEPNESS = 4.0 # Controls how sharp the transition is around the threshold
 MAX_PHEROMONE_STRENGTH = 1.0  # Max contribution of a single resting ant (scales the signal)
-PHEROMONE_GROWTH_RATE = 0.02 # How fast pheromone strength increases (related to 1/time units) - TUNE ME!
 # Calculate PHEROMONE_MIDPOINT_TIME based on PHEROMONE_MAX_TIMESTEP
 PHEROMONE_MAX_TIMESTEP = 2500
-PHEROMONE_MIDPOINT_TIME = (PHEROMONE_MAX_TIMESTEP * DT) / 2 # Midpoint in actual simulation time units
+PHEROMONE_ELU_TRANSITION_FRAC = 0.3 # (0 to 1) Fraction of T_max where growth becomes linear. TUNE ME!
+PHEROMONE_ELU_STEEPNESS = 5.0       # (> 0) Controls the initial exponential rise steepness. TUNE ME!
 
 # <<< Wall Interaction Parameters >>>
 WALL_ZONE_WIDTH = ANT_LENGTH * 1.5 # How far from the wall the turning response starts
-# Example reduced value from previous step
-WALL_AVOID_STRENGTH = 0.9          # How strongly ants turn towards center (rad/sec) - TUNE ME!
+WALL_AVOID_STRENGTH = 0.9          # How strongly ants turn towards center (rad/sec)
 
 # State constants
 STATE_RESTING = 0
@@ -124,12 +127,36 @@ def update_step(state, key, t, dt):
     # Count emitting neighbours for each ant (sum across columns for each row i)
     num_resting_neighbours = jnp.sum(pheromone_signal_matrix, axis=1)
 
-    # --- Calculate time-dependent individual pheromone strength ---
-    # Use a sigmoid growth function for individual ant strength over time 't'
-    strength_exponent = -PHEROMONE_GROWTH_RATE * (t - PHEROMONE_MIDPOINT_TIME)
-    # Clip exponent for stability
-    clipped_strength_exponent = jnp.clip(strength_exponent, -20.0, 20.0) # Avoid exp overflow
-    current_individual_strength = MAX_PHEROMONE_STRENGTH / (1.0 + jnp.exp(clipped_strength_exponent))
+    # --- Calculate time-dependent individual pheromone strength using ELU ---
+    T_max = PHEROMONE_MAX_TIMESTEP * dt # Total time over which strength grows
+    k = PHEROMONE_ELU_STEEPNESS        # Steepness factor (k)
+    x_offset = PHEROMONE_ELU_TRANSITION_FRAC # Transition fraction (x_offset)
+    alpha = 1.0 # Standard ELU alpha
+
+    # Ensure parameters are valid (avoid division by zero or log(neg))
+    k = jnp.maximum(1e-6, k) # k must be positive
+    x_offset = jnp.clip(x_offset, 1e-6, 1.0 - 1e-6) # x_offset must be in (0, 1)
+
+    # Calculate scaling constants A and B to ensure f(0)=0 and f(T_max)=MAX
+    # Denominator for A: k*(1-x_offset) - (exp(-k*x_offset) - 1)
+    denom_A = k * (1.0 - x_offset) - (jnp.exp(-k * x_offset) - 1.0)
+    # Add epsilon to avoid division by zero if k is tiny or numerically unstable
+    A = MAX_PHEROMONE_STRENGTH / (denom_A + 1e-9)
+    # B = -A * (exp(-k*x_offset) - 1)
+    B = -A * (jnp.exp(-k * x_offset) - 1.0)
+
+    # Calculate the input to ELU based on current time t
+    # Clamp t to be within [0, T_max] for stability in calculation
+    t_clamped = jnp.clip(t, 0.0, T_max)
+    # Add epsilon to T_max denominator to avoid division by zero if T_max is 0
+    x_elu = k * (t_clamped / (T_max + 1e-9) - x_offset)
+
+    # Calculate the ELU-based strength
+    elu_val = jax.nn.elu(x_elu, alpha=alpha)
+    strength_raw = A * elu_val + B
+
+    # Clip final strength to ensure it's within [0, MAX]
+    current_individual_strength = jnp.clip(strength_raw, 0.0, MAX_PHEROMONE_STRENGTH)
 
     # --- Calculate probability of stopping using a sigmoid based on signal strength ---
     # Total signal strength = num_neighbours * time_dependent_strength

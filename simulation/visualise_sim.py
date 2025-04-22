@@ -22,8 +22,8 @@ from ant_simulation import (
     initialise_state, update_step, wrap_angle # wrap_angle might be needed if viz does calculations
 )
 
-MAX_TIMESTEPS = 5000
-SAVE_ANIMATION = False
+MAX_TIMESTEPS = int(500 / DT) # Simulation time in "seconds"
+SAVE_ANIMATION = True
 
 # --- Visualization Parameters ---
 FRAME_INTERVAL = int(DT * 100) # ms -> e.g., DT=0.1 gives 100ms for real-time view
@@ -146,7 +146,6 @@ if __name__ == "__main__": # Standard practice for executable scripts
 
     ani = animation.FuncAnimation(fig, update_animation, frames=num_frames,
                                   interval=FRAME_INTERVAL, blit=True, repeat=False)
-    plt.show()
     print("Animation finished.")
 
     if SAVE_ANIMATION:
@@ -154,6 +153,9 @@ if __name__ == "__main__": # Standard practice for executable scripts
         # Save as .mp4 in the visualisation directory
         speed_multiplier = 3.0
         save_fps = int(speed_multiplier * (1 / DT)) # e.g., 3 * (1/0.1) = 30 fps for 3x speed
-        ani.save(os.path.join(PROJECT_ROOT, "visualisation", "ant_simulation.mp4"),
+        ani.save(os.path.join(PROJECT_ROOT, "visualisation", "Sigmoid_ant_simulation.mp4"),
                  writer="ffmpeg", fps=save_fps
         )
+    else:
+        plt.show()
+    print("Done.")
