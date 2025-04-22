@@ -1,4 +1,4 @@
-# visualise_sim.py
+# animate_sim.py
 # Handles the visualisation of the ant simulation using Matplotlib.
 # Imports core logic from ant_simulation.py
 

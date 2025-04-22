@@ -8,6 +8,7 @@ version = "0.1.0"
 [tasks]
 visualise = "python simulation/visualise_sim.py"
 visualize = "python simulation/visualise_sim.py"
+animate = "python simulation/animate_sim.py"
 
 [dependencies]
 python = ">=3.13.3,<3.14"
