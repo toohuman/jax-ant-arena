@@ -14,12 +14,9 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 # --- Import core simulation components ---
 from ant_simulation import (
-    # Parameters needed for setup/visualization
-    NUM_ANTS, ARENA_RADIUS, ANT_LENGTH, ANT_WIDTH, DT,
-    # Constants needed
-    STATE_RESTING,
+    NUM_ANTS, ARENA_RADIUS, ANT_LENGTH, ANT_WIDTH, DT, STATE_RESTING,
     # Core functions
-    initialise_state, update_step, wrap_angle # wrap_angle might be needed if viz does calculations
+    initialise_state, update_step
 )
 
 MAX_TIMESTEPS = int(500 / DT) # Simulation time in "seconds"
