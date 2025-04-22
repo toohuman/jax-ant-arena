@@ -17,14 +17,18 @@ except ImportError:
     print("Please ensure it's in the same directory or accessible in your PYTHONPATH.")
     sys.exit(1)
 
-# --- Visualization Parameters ---
+
+MAX_SIMULATION_TIME = 500   # None = run indefinitely
+
+
+# --- Visualisation Parameters ---
 WINDOW_SIZE = 800
 ARENA_PADDING = 20 # Pixel padding around the arena
 VISUAL_ANT_MULTIPLIER = 1.0
-TIMER_INTERVAL_MS = 16 # Target ~60 FPS for visualization updates
+TIMER_INTERVAL_MS = 16 # Target ~60 FPS for visualisation updates
 # Define the speed levels (multipliers relative to real-time)
 # 1x means 1 sim second per real second
-SPEED_LEVELS = (1, 4, 8, 16, 32)
+SPEED_LEVELS = (1, 4, 8, 16, 64, 128)
 
 # --- Colors ---
 COLOR_BACKGROUND = QColor(245, 245, 245)
@@ -32,7 +36,7 @@ COLOR_ARENA = QColor(230, 220, 240)
 COLOR_MOVING = QColor(34, 34, 34)
 COLOR_RESTING = QColor(200, 50, 50)
 
-class AntSimulationVisualizer(QWidget):
+class AntSimulationVisualiser(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("JAX Ant Simulation Visualiser")
@@ -50,6 +54,7 @@ class AntSimulationVisualizer(QWidget):
         self.simulation_time_debt = 0.0
         # Stores the real time the last update occurred
         self.last_update_time = time.perf_counter()
+        self.is_running = True
         
         # --- Visualization Control ---
         self.current_speed_level_index = 0 # Start at 1x speed
@@ -63,7 +68,7 @@ class AntSimulationVisualizer(QWidget):
 
         self.status_label = QLabel("Status: Initializing...", self)
         self.status_label.setStyleSheet("color: black;")
-        self.update_status_label() # Initialize label text correctly
+        self.update_status_label() # Initialise label text correctly
 
         # Layout
         control_layout = QHBoxLayout()
@@ -72,7 +77,7 @@ class AntSimulationVisualizer(QWidget):
         control_layout.addStretch(1) # Pushes controls to the left
 
         main_layout = QVBoxLayout(self)
-        main_layout.addStretch(1) # Visualizer area will expand
+        main_layout.addStretch(1) # Visualiser area will expand
         main_layout.addLayout(control_layout) # Controls at the bottom
 
         # --- Drawing Parameters ---
@@ -125,6 +130,21 @@ class AntSimulationVisualizer(QWidget):
         Advances the simulation based on real time elapsed and current speed factor,
         then schedules a repaint.
         """
+        if not self.is_running:
+            return # Don't do anything if simulation is stopped
+        
+        if MAX_SIMULATION_TIME and self.sim_time >= MAX_SIMULATION_TIME:
+            if self.is_running: # Only do this once
+                self.is_running = False
+                self.timer.stop()
+                self.speed_button.setEnabled(False)
+                self.status_label.setText(f"Status: Finished | Sim Time: {self.sim_time:.2f}")
+                print(f"Simulation finished at time {self.sim_time:.2f}")
+                self.update() # Ensure final frame is painted
+            return
+
+        # -------------------------------------------------------
+            
         # 1. Calculate real time elapsed since last update
         current_time = time.perf_counter()
         real_dt = current_time - self.last_update_time
@@ -258,6 +278,6 @@ if __name__ == "__main__":
     #     print(f"Could not configure JAX platform: {e}")
 
     app = QApplication(sys.argv)
-    visualizer = AntSimulationVisualizer()
-    visualizer.show()
+    visualiser = AntSimulationVisualiser()
+    visualiser.show()
     sys.exit(app.exec_())
