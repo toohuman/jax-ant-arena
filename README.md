@@ -12,27 +12,25 @@ Pheromones are modeled as a global, continuously increasing function influenced 
 
 ## Quickstart
 
-### 1. Install [Pixi](https://prefix.dev/docs/pixi/installation) (recommended)
+### 1. Install [Poetry](https://python-poetry.org/docs/#installation)
 ```sh
-curl -fsSL https://pixi.sh/install.sh | bash
+curl -sSL https://install.python-poetry.org | python3 -
 ```
 
 ### 2. Set up the project environment
 ```sh
-pixi install
+poetry install
 ```
-
-Alternatively, you may use `conda` or `poetry` by installing the dependencies listed in `pixi.toml`.
 
 ### 3. Run the simulation and visualisation
 ```sh
-pixi run visualise
+poetry run python simulation/visualise_sim.py
 ```
 
 ## Project Structure
 - `simulation/visualise_sim.py` — Main simulation and visualisation script
 - `simulation/ant_simulation.py` — Core ant simulation logic and parameters
-- `pixi.toml` — Project environment and dependency configuration
+- `pyproject.toml` — Project environment and dependency configuration
 
 ## Customisation
 
