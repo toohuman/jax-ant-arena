@@ -153,7 +153,7 @@ if __name__ == "__main__": # Standard practice for executable scripts
         # Save as .mp4 in the visualisation directory
         speed_multiplier = 3.0
         save_fps = int(speed_multiplier * (1 / DT)) # e.g., 3 * (1/0.1) = 30 fps for 3x speed
-        ani.save(os.path.join(PROJECT_ROOT, "visualisation", "Sigmoid_ant_simulation.mp4"),
+        ani.save(os.path.join(PROJECT_ROOT, "visualisation", "ELU_ant_simulation.mp4"),
                  writer="ffmpeg", fps=save_fps
         )
     else:
