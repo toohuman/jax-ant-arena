@@ -1,4 +1,4 @@
-# 🐜〰️〰️〰️JAX〰️Ant〰️Arena〰️〰️〰️
+# 🐜〰️JAX〰️Ant〰️Arena〰️〰️
 
 JAX Ant Arena is a research tool for simulating simple pheromone-based ant colony dynamics. The simulation aims to capture the collective behavior of real (clonal) ant colonies, which exhibit strong clustering and state-switching dynamics modulated by an arrestant pheromone.
 
