@@ -26,7 +26,7 @@ PHEROMONE_STEEPNESS = 4.0 # Controls how sharp the transition is around the thre
 MAX_PHEROMONE_STRENGTH = 1.0  # Max contribution of a single resting ant (scales the signal)
 # Calculate PHEROMONE_MIDPOINT_TIME based on PHEROMONE_MAX_TIMESTEP
 PHEROMONE_MAX_TIMESTEP = 2500
-PHEROMONE_ELU_TRANSITION_FRAC = 0.3 # (0 to 1) Fraction of T_max where growth becomes linear. TUNE ME!
+PHEROMONE_ELU_TRANSITION_FRAC = 0.7 # (0 to 1) Fraction of T_max where growth becomes linear. TUNE ME!
 PHEROMONE_ELU_STEEPNESS = 5.0       # (> 0) Controls the initial exponential rise steepness. TUNE ME!
 
 # <<< Wall Interaction Parameters >>>
@@ -44,10 +44,8 @@ MEAN_BURST_DURATION = 7.0  # Average time (in sim time units) for a movement bur
 STD_BURST_DURATION = 1.5
 MEAN_BURST_SPEED = 6.0     # Average speed during a burst (units per dt)
 STD_BURST_SPEED = 1.0
-MIN_STATE_DURATION = 0.1   # Minimum duration for any state bout (in sim time units)
-
-# Turning rate during bursts
-TURN_RATE_STD = 1.2
+MIN_STATE_DURATION = 0.1   # Minimum duration for any state bout (in sim time units)# Turning rate during bursts
+TURN_RATE_STD = 1.4
 
 # --- Initialization ---
 
