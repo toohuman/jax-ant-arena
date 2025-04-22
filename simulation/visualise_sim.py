@@ -1,5 +1,6 @@
 # visualise_sim.py
 import sys
+import time
 import jax
 import jax.numpy as jnp
 import jax.random as random
@@ -18,42 +19,55 @@ except ImportError:
 
 # --- Visualization Parameters ---
 WINDOW_SIZE = 800
-ANT_DRAW_LENGTH = antsim.ANT_LENGTH * 2.5 # Make ants more visible
-ANT_DRAW_WIDTH = antsim.ANT_WIDTH * 2.5
 ARENA_PADDING = 20 # Pixel padding around the arena
+VISUAL_ANT_MULTIPLIER = 1.0
 TIMER_INTERVAL_MS = 16 # Target ~60 FPS for visualization updates
-DEFAULT_SPEEDUP_FACTOR = 16
+# Define the speed levels (multipliers relative to real-time)
+# 1x means 1 sim second per real second
+SPEED_LEVELS = (1, 4, 8, 16, 32)
 
 # --- Colors ---
-COLOR_BACKGROUND = QColor(204, 204, 204) # #cccccc
-COLOR_ARENA = QColor(106, 127, 163)      # #6a7fa3
-COLOR_MOVING = QColor(34, 34, 34)        # #222222
-COLOR_RESTING = QColor(200, 50, 50)      # Reddish
+COLOR_BACKGROUND = QColor(245, 245, 245)
+COLOR_ARENA = QColor(230, 220, 240)
+COLOR_MOVING = QColor(34, 34, 34)
+COLOR_RESTING = QColor(200, 50, 50)
 
 class AntSimulationVisualizer(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("JAX Ant Simulation Visualizer (PyQt5)")
+        self.setWindowTitle("JAX Ant Simulation Visualiser")
         self.setGeometry(100, 100, WINDOW_SIZE, WINDOW_SIZE + 50) # Extra space for controls
 
         # --- JAX Simulation State ---
-        self.key = random.PRNGKey(0) # Initial JAX random key
+        self.key = random.PRNGKey(0)
         self.key, subkey = random.split(self.key)
-        # Use NUM_ANTS from the imported module
         self.sim_state = antsim.initialise_state(subkey, antsim.ARENA_RADIUS)
-        self.sim_time = 0.0
-        self.dt = antsim.DT # Get timestep from simulation module
+        self.sim_time = 0.0 # Tracks the current time within the simulation
+        self.dt = antsim.DT # Simulation time step size
+
+        # --- Real-Time Synchronization ---
+        # Stores simulation time we owe but couldn't run due to discrete steps
+        self.simulation_time_debt = 0.0
+        # Stores the real time the last update occurred
+        self.last_update_time = time.perf_counter()
+        
+        # --- Visualization Control ---
+        self.current_speed_level_index = 0 # Start at 1x speed
+        # speedup_factor is now the multiplier for real-time
+        self.speedup_factor = SPEED_LEVELS[self.current_speed_level_index]
 
         # --- UI Elements ---
-        self.speedup_button = QPushButton(f"Speed Up (x{DEFAULT_SPEEDUP_FACTOR})", self)
-        self.speedup_button.setCheckable(True)
-        self.speedup_button.clicked.connect(self.toggle_speedup)
+        self.speed_button = QPushButton(f"Speed: x{self.speedup_factor}", self)
+        self.speed_button.setStyleSheet("color: black;")
+        self.speed_button.clicked.connect(self.cycle_speed)
 
-        self.status_label = QLabel("Status: Running (x1)", self)
+        self.status_label = QLabel("Status: Initializing...", self)
+        self.status_label.setStyleSheet("color: black;")
+        self.update_status_label() # Initialize label text correctly
 
         # Layout
         control_layout = QHBoxLayout()
-        control_layout.addWidget(self.speedup_button)
+        control_layout.addWidget(self.speed_button)
         control_layout.addWidget(self.status_label)
         control_layout.addStretch(1) # Pushes controls to the left
 
@@ -61,31 +75,25 @@ class AntSimulationVisualizer(QWidget):
         main_layout.addStretch(1) # Visualizer area will expand
         main_layout.addLayout(control_layout) # Controls at the bottom
 
-        # --- Visualization Control ---
-        self.speedup_active = False
-        self.speedup_factor = DEFAULT_SPEEDUP_FACTOR
-        self.update_status_label()
-
-        # Center and scaling parameters (will be updated in resizeEvent)
+        # --- Drawing Parameters ---
         self.center_x = 0
         self.center_y = 0
-        self.arena_pixel_radius = 1 # Placeholder
-        self.scale_factor = 1.0    # Placeholder (sim units to pixels)
+        self.arena_pixel_radius = 1
+        self.scale_factor = 1.0
 
         # --- Timer ---
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_simulation)
-        self.timer.start(TIMER_INTERVAL_MS)
+        self.timer.start(TIMER_INTERVAL_MS) # Timer dictates visualisation refresh rate
 
     def update_status_label(self):
-        speed = f"x{self.speedup_factor}" if self.speedup_active else "x1"
-        self.status_label.setText(f"Status: Running ({speed}) | Sim Time: {self.sim_time:.1f}")
+        """ Updates the status label with current speed and sim time. """
+        self.status_label.setText(f"Status: Running | Sim Time: {self.sim_time:.2f}")
+        self.speed_button.setText(f"Speed: x{self.speedup_factor}")
 
     def resizeEvent(self, event):
-        """ Handles window resizing """
-        # Keep controls proportional if needed, recalculate drawing area
         self.calculate_drawing_parameters()
-        super().resizeEvent(event) # Call base class implementation
+        super().resizeEvent(event)
 
     def calculate_drawing_parameters(self):
         """ Calculates center and scaling based on current window size """
@@ -104,53 +112,80 @@ class AntSimulationVisualizer(QWidget):
         else:
             self.scale_factor = 1.0
 
-    def toggle_speedup(self):
-        """ Toggles the simulation speedup """
-        self.speedup_active = self.speedup_button.isChecked()
-        if self.speedup_active:
-            self.speedup_button.setText(f"Normal Speed (x1)")
-        else:
-            self.speedup_button.setText(f"Speed Up (x{self.speedup_factor})")
-        self.update_status_label() # Update label immediately
+    def cycle_speed(self):
+        """ Cycles through the defined speed levels relative to real-time. """
+        self.current_speed_level_index = (self.current_speed_level_index + 1) % len(SPEED_LEVELS)
+        self.speedup_factor = SPEED_LEVELS[self.current_speed_level_index]
+        # Reset debt when changing speed to avoid sudden jumps
+        self.simulation_time_debt = 0.0
+        self.update_status_label()
 
     def update_simulation(self):
-        """ Performs simulation steps and schedules a repaint """
-        steps_to_run = self.speedup_factor if self.speedup_active else 1
+        """
+        Advances the simulation based on real time elapsed and current speed factor,
+        then schedules a repaint.
+        """
+        # 1. Calculate real time elapsed since last update
+        current_time = time.perf_counter()
+        real_dt = current_time - self.last_update_time
+        self.last_update_time = current_time
 
-        # Ensure state is on CPU for visualization if it was moved to GPU/TPU
-        # self.sim_state = jax.device_get(self.sim_state) # Usually needed if using GPU/TPU
+        # 2. Determine simulation time to advance in this frame
+        # Target sim time = real time elapsed * speed multiplier + any leftover debt
+        sim_time_to_advance = (real_dt * self.speedup_factor) + self.simulation_time_debt
 
-        for _ in range(steps_to_run):
-            self.key, subkey = random.split(self.key)
+        # 3. Calculate how many whole simulation steps (dt) fit into this
+        # Use max(0,...) in case real_dt is negative or tiny due to timing issues
+        steps_to_run = max(0, int(sim_time_to_advance / self.dt))
+
+        # 4. Calculate simulation time actually covered by these whole steps
+        sim_time_advanced_this_frame = steps_to_run * self.dt
+
+        # 5. Update the simulation time debt for the next frame
+        # debt = (what we should have run) - (what we actually ran)
+        self.simulation_time_debt = sim_time_to_advance - sim_time_advanced_this_frame
+
+        # 6. Run the simulation steps
+        if steps_to_run > 0:
+            # Ensure state is on CPU if needed (uncomment if using GPU/TPU heavily)
+            # self.sim_state = jax.device_get(self.sim_state)
+
+            # Store the simulation time at the start of this batch of steps
+            step_time = self.sim_time
             try:
-                # Call the JAX update function from the imported module
-                self.sim_state = antsim.update_step(self.sim_state, subkey, self.sim_time, self.dt)
-                self.sim_time += self.dt
+                for _ in range(steps_to_run):
+                    self.key, subkey = random.split(self.key)
+                    # Pass the correct simulation time for this specific step
+                    self.sim_state = antsim.update_step(self.sim_state, subkey, step_time, self.dt)
+                    # Increment the time for the *next* step
+                    step_time += self.dt
+
+                # Update the global simulation time tracker *after* the loop
+                self.sim_time = step_time
+
             except Exception as e:
                 print(f"Error during JAX simulation step: {e}")
-                self.timer.stop() # Stop simulation on error
+                self.timer.stop()
                 self.status_label.setText(f"Status: Error! Check console.")
-                return # Stop processing
+                self.speed_button.setEnabled(False)
+                return
 
-        # After running steps, trigger a repaint
-        self.update() # Calls paintEvent()
-        self.update_status_label() # Update time display
+        # 7. Trigger a repaint regardless of whether steps were run (keeps UI responsive)
+        self.update()
+        self.update_status_label()
 
     def paintEvent(self, event):
-        """ Draws the simulation state """
+        """ Draws the simulation state (same as before) """
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        # Calculate parameters if not done yet (e.g., first paint)
         if self.arena_pixel_radius <= 1:
             self.calculate_drawing_parameters()
 
-        # 1. Draw Background
         painter.setBrush(COLOR_BACKGROUND)
         painter.setPen(Qt.NoPen)
-        painter.drawRect(self.rect()) # Fill the whole widget area
+        painter.drawRect(self.rect())
 
-        # 2. Draw Arena (Drawing area)
         painter.setBrush(COLOR_ARENA)
         arena_rect = QRectF(self.center_x - self.arena_pixel_radius,
                            self.center_y - self.arena_pixel_radius,
@@ -158,57 +193,56 @@ class AntSimulationVisualizer(QWidget):
                            self.arena_pixel_radius * 2)
         painter.drawEllipse(arena_rect)
 
-        # 3. Draw Ants
-        # Get data from JAX state (ensure it's accessible, might need device_get if on GPU/TPU)
         try:
             positions = jax.device_get(self.sim_state['position'])
             angles = jax.device_get(self.sim_state['angle'])
             states = jax.device_get(self.sim_state['behavioral_state'])
         except Exception as e:
              print(f"Error getting data from JAX state: {e}")
-             # Draw error message?
              painter.setPen(QColor("red"))
              painter.drawText(20, 20, "Error accessing JAX state.")
              return
-
-
-        # Define the standard ant shape (triangle pointing right)
-        # Coordinates relative to the ant's center (0,0)
-        ant_poly = QPolygonF([
-            QPointF(ANT_DRAW_LENGTH / 2, 0),
-            QPointF(-ANT_DRAW_LENGTH / 2, -ANT_DRAW_WIDTH / 2),
-            QPointF(-ANT_DRAW_LENGTH / 2, ANT_DRAW_WIDTH / 2)
-        ])
 
         for i in range(antsim.NUM_ANTS):
             sim_x, sim_y = positions[i]
             angle_rad = angles[i]
             state = states[i]
 
-            # --- Coordinate Transformation ---
-            # Map simulation coordinates (origin at center, y-up)
-            # to Qt coordinates (origin top-left, y-down)
             screen_x = self.center_x + sim_x * self.scale_factor
-            screen_y = self.center_y - sim_y * self.scale_factor # Invert Y-axis
+            screen_y = self.center_y - sim_y * self.scale_factor
 
-            # --- Set Color ---
+            # --- Calculate Ant Pixel Size for this Frame ---
+            # Base size in simulation units
+            sim_length = antsim.ANT_LENGTH
+            # ant_simulation.py defines width = length / 2.0
+            sim_width = antsim.ANT_WIDTH # Or calculate as antsim.ANT_LENGTH / 2.0
+
+            # Convert to pixels using scale_factor and apply visual multiplier
+            # Use self.scale_factor which IS proportional to arena size
+            pixel_length = sim_length * self.scale_factor * VISUAL_ANT_MULTIPLIER
+            pixel_width = sim_width * self.scale_factor * VISUAL_ANT_MULTIPLIER
+
+            # Ensure minimum size to prevent tiny/invisible ants if window is very small
+            min_pixel_size = 2.0 # Minimum length in pixels
+            pixel_length = max(min_pixel_size, pixel_length)
+            pixel_width = max(min_pixel_size * (sim_width / sim_length), pixel_width) # Maintain aspect ratio
+
+            # --- Define Ant Polygon Dynamically (using calculated pixel values) ---
+            ant_poly = QPolygonF([
+                QPointF(pixel_length / 2.0, 0),
+                QPointF(-pixel_length / 2.0, -pixel_width / 2.0),
+                QPointF(-pixel_length / 2.0, pixel_width / 2.0)
+            ])
+
             color = COLOR_RESTING if state == antsim.STATE_RESTING else COLOR_MOVING
             painter.setBrush(QBrush(color))
-            painter.setPen(Qt.NoPen) # No outline for ants
+            painter.setPen(Qt.NoPen)
 
-            # --- Draw Ant with Transformation ---
-            painter.save() # Save current painter state (transformations, etc.)
-
-            # 1. Translate to the ant's position on screen
+            painter.save()
             painter.translate(screen_x, screen_y)
-            # 2. Rotate around the ant's center. Qt rotation is clockwise in degrees.
-            # JAX angle is likely counter-clockwise in radians.
             painter.rotate(-jnp.rad2deg(angle_rad))
-
-            # 3. Draw the standard ant polygon at the translated/rotated origin
             painter.drawPolygon(ant_poly)
-
-            painter.restore() # Restore painter state for the next ant
+            painter.restore()
 
         painter.end()
 
