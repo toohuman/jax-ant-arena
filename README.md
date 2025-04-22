@@ -2,12 +2,12 @@
 
 JAX Ant Arena is a research tool for simulating simple pheromone-based ant colony dynamics. The simulation aims to capture the collective behavior of real (clonal) ant colonies, which exhibit strong clustering and state-switching dynamics modulated by an arrestant pheromone.
 
-Pheromones are modeled as a global, continuously increasing function influenced by the proximity of ants to one another. Notably, pheromones are not persistent in the environment; instead, their effect is immediate and global. The simulation leverages [JAX](https://github.com/google/jax) for efficient, vectorized multi-agent modeling.
+Pheromones are modeled as a global, continuously increasing function influenced by the proximity of ants to one another. Notably, pheromones are not persistent in the environment; instead, their effect is immediate and global. The simulation leverages [JAX](https://github.com/google/jax) for efficient, vectorised multi-agent modeling.
 
 ## Features
-- Fast, vectorized simulation of ant colony dynamics using JAX
+- Fast, vectorised simulation of ant colony dynamics using JAX
 - Adjustable simulation speed for rapid exploration
-- Real-time visualization with matplotlib
+- Real-time visualisation with matplotlib
 - Easily modifiable pheromone and behavioral parameters
 
 ## Quickstart
@@ -24,17 +24,17 @@ pixi install
 
 Alternatively, you may use `conda` or `poetry` by installing the dependencies listed in `pixi.toml`.
 
-### 3. Run the simulation and visualization
+### 3. Run the simulation and visualisation
 ```sh
 pixi run visualise
 ```
 
 ## Project Structure
-- `simulation/visualise_sim.py` — Main simulation and visualization script
+- `simulation/visualise_sim.py` — Main simulation and visualisation script
 - `simulation/ant_simulation.py` — Core ant simulation logic and parameters
 - `pixi.toml` — Project environment and dependency configuration
 
-## Customization
+## Customisation
 
 Simulation and pheromone parameters can be adjusted to explore different behaviors. Key parameters in `simulation/ant_simulation.py` include:
 - `PHEROMONE_MAX_TIMESTEP`: Maximum time for pheromone effect
