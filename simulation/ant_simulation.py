@@ -36,6 +36,7 @@ WALL_AVOID_STRENGTH = 0.9          # How strongly ants turn towards center (rad/
 # State constants
 STATE_RESTING = 0
 STATE_MOVING_BURST = 1
+STATE_ARRESTED = 2
 
 # State durations and burst speed parameters
 MEAN_REST_DURATION = 3.0   # Average time (in sim time units) to rest
@@ -44,6 +45,8 @@ MEAN_BURST_DURATION = 7.0  # Average time (in sim time units) for a movement bur
 STD_BURST_DURATION = 2.5
 MEAN_BURST_SPEED = 6.0     # Average speed during a burst (units per dt)
 STD_BURST_SPEED = 1.0
+MEAN_ARREST_DURATION = 5.5 # Shorter duration for pheromone-induced stop? TUNE ME!
+STD_ARREST_DURATION = 10.0  # TUNE ME!
 MIN_STATE_DURATION = 0.2   # Minimum duration for any state bout (in sim time units)# Turning rate during bursts
 TURN_RATE_STD = 1.4
 
@@ -94,14 +97,16 @@ def update_step(state, key, t, dt):
 
     # --- 0. Split Keys ---
     # Need one more key for the pheromone stop roll
-    key, key_dur_rest, key_dur_burst, key_speed, key_turn, key_collision, key_pheromone_stop = random.split(key, 7)
+    key, key_dur_rest, key_dur_burst, key_dur_arrest,\
+        key_speed, key_turn, key_collision,\
+            key_pheromone_stop, key_arrest_check = random.split(key, 9)
 
     # --- 1. Pheromone Influence Calculation --- <<< PHEROMONE >>> NEW BLOCK
 
-    # Identify which ants are resting (potential pheromone emitters)
-    is_resting_emitter = (behavioural_state == STATE_RESTING)
+    # Identify which ants are emitting pheromones (Resting OR Arrested)
+    is_emitter = (behavioural_state == STATE_RESTING) | (behavioural_state == STATE_ARRESTED) # <<< MODIFIED >>>
 
-    # Calculate pairwise distances (could reuse collision calculation later, but do here for clarity)
+    # Calculate pairwise distances
     delta_x_pair = positions[:, 0, None] - positions[None, :, 0]
     delta_y_pair = positions[:, 1, None] - positions[None, :, 1]
     # Add small epsilon to avoid sqrt(0) if ants are exactly on top (unlikely after collision)
@@ -112,10 +117,10 @@ def update_step(state, key, t, dt):
     within_radius = (distances_pair < PHEROMONE_RADIUS)
 
     # Create a matrix where pheromone_signal_matrix[i, j] is True if:
-    #   - ant j is resting AND
+    #   - ant j is an emitter (resting or arrested) AND
     #   - ant j is within PHEROMONE_RADIUS of ant i
-    # Broadcasting is_resting_emitter to compare against each column (j)
-    pheromone_signal_matrix = jnp.where(within_radius, is_resting_emitter[None, :], False)
+    # Broadcasting is_emitter to compare against each column (j)
+    pheromone_signal_matrix = jnp.where(within_radius, is_emitter[None, :], False)
 
     # Exclude self-influence (set diagonal to False)
     # An ant cannot detect its own pheromone if it were resting
@@ -167,10 +172,15 @@ def update_step(state, key, t, dt):
 
     # Roll the dice for stopping due to pheromone for each ant
     rand_stop = random.uniform(key_pheromone_stop, (num_ants,))
+    # Roll the dice for checking if _arrested_ ants should _stay_ arrested
+    rand_arrest_check = random.uniform(key_arrest_check, (num_ants,))
 
-    # Determine which *moving* ants actually stop due to pheromone this step
+    # This determines the transition MOVING -> ARRESTED
     stops_due_to_pheromone = (behavioural_state == STATE_MOVING_BURST) & \
                              (rand_stop < prob_stop_pheromone)
+    # Determine if currently _arrested_ ants are _kept_ arrested by pheromones
+    stays_arrested_due_to_pheromone = (behavioural_state == STATE_ARRESTED) & \
+                                      (rand_arrest_check < prob_stop_pheromone) # <<< NEW LOGIC >>>
 
     # --- 2. State Transition Logic (Duration-based + Pheromone Override) ---
 
@@ -178,51 +188,75 @@ def update_step(state, key, t, dt):
     next_time_in_state_if_no_stop = time_in_state + dt
     duration_expired = (next_time_in_state_if_no_stop >= current_state_duration)
 
-    # Potential next state if duration expires
-    potential_next_state = jnp.where(duration_expired, 1 - behavioural_state, behavioural_state)
-
     # Draw new durations for *all* ants (simpler than conditional drawing)
     # We'll select the correct one based on the *final* next state
     new_rest_durations = draw_durations(key_dur_rest, MEAN_REST_DURATION, STD_REST_DURATION)
     new_burst_durations = draw_durations(key_dur_burst, MEAN_BURST_DURATION, STD_BURST_DURATION)
 
-    # Determine the appropriate duration for the *potential* next state
-    duration_if_expired = jnp.where(potential_next_state == STATE_RESTING, new_rest_durations, new_burst_durations)
-    potential_next_duration = jnp.where(duration_expired, duration_if_expired, current_state_duration)
-    potential_next_time_in_state = jnp.where(duration_expired, 0.0, next_time_in_state_if_no_stop)
+    new_arrest_durations = draw_durations(key_dur_arrest, MEAN_ARREST_DURATION, STD_ARREST_DURATION)
 
+    # --- Determine Final State, Duration, and Time-in-State ---
+    # This logic becomes more complex due to the third state and the arrest check
 
-    # --- 2b. Apply Pheromone Override <<< PHEROMONE >>>
-    # If an ant stops due to pheromone:
-    # - Its state becomes STATE_RESTING.
-    # - Its time_in_state resets to 0.0.
-    # - Its current_state_duration becomes a *newly drawn* REST duration.
+    # Initialize next state variables assuming no transition happens
+    next_state_val = behavioural_state
+    next_duration = current_state_duration
+    next_time = next_time_in_state_if_no_stop
 
-    # Final state is STATE_RESTING if stopped by pheromone, otherwise it's the potential_next_state
-    final_behavioural_state = jnp.where(stops_due_to_pheromone, STATE_RESTING, potential_next_state)
+    # --- Transitions OUT OF MOVING ---
+    # Case 1: Moving ant stops due to pheromone -> ARRESTED
+    next_state_val = jnp.where(stops_due_to_pheromone, STATE_ARRESTED, next_state_val)
+    next_duration = jnp.where(stops_due_to_pheromone, new_arrest_durations, next_duration)
+    next_time = jnp.where(stops_due_to_pheromone, 0.0, next_time) # Reset timer
 
-    # Final duration: if stopped by pheromone, use a new rest duration; otherwise use potential_next_duration
-    final_current_state_duration = jnp.where(stops_due_to_pheromone, new_rest_durations, potential_next_duration)
+    # Case 2: Moving ant's duration expires (and wasn't stopped by pheromone) -> RESTING (naturally)
+    moving_duration_expired = (behavioural_state == STATE_MOVING_BURST) & duration_expired & (~stops_due_to_pheromone)
+    next_state_val = jnp.where(moving_duration_expired, STATE_RESTING, next_state_val)
+    next_duration = jnp.where(moving_duration_expired, new_rest_durations, next_duration)
+    next_time = jnp.where(moving_duration_expired, 0.0, next_time) # Reset timer
 
-    # Final time in state: if stopped by pheromone, reset to 0; otherwise use potential_next_time_in_state
-    final_time_in_state = jnp.where(stops_due_to_pheromone, 0.0, potential_next_time_in_state)
+    # --- Transitions OUT OF RESTING ---
+    # Case 3: Resting ant's duration expires -> MOVING
+    resting_duration_expired = (behavioural_state == STATE_RESTING) & duration_expired
+    next_state_val = jnp.where(resting_duration_expired, STATE_MOVING_BURST, next_state_val)
+    next_duration = jnp.where(resting_duration_expired, new_burst_durations, next_duration)
+    next_time = jnp.where(resting_duration_expired, 0.0, next_time) # Reset timer
+
+    # --- Transitions/Checks for ARRESTED ---
+    # Case 4: Arrested ant stays arrested due to continued pheromone signal
+    # If it stays arrested, reset its timer so it doesn't exit based on duration while signal is high
+    next_time = jnp.where(stays_arrested_due_to_pheromone, 0.0, next_time) # <<< Reset timer if kept arrested
+    # Note: State and duration remain unchanged if stays_arrested_due_to_pheromone is True, handled by initialization
+
+    # Case 5: Arrested ant's duration expires AND it's NOT kept arrested by pheromones -> MOVING
+    arrested_duration_expired_and_free = (behavioural_state == STATE_ARRESTED) & duration_expired & (~stays_arrested_due_to_pheromone)
+    next_state_val = jnp.where(arrested_duration_expired_and_free, STATE_MOVING_BURST, next_state_val)
+    next_duration = jnp.where(arrested_duration_expired_and_free, new_burst_durations, next_duration)
+    next_time = jnp.where(arrested_duration_expired_and_free, 0.0, next_time) # Reset timer
+
+    # --- Final Assignment ---
+    final_behavioural_state = next_state_val
+    final_current_state_duration = next_duration
+    final_time_in_state = next_time
 
 
     # --- 3. State-Dependent Behaviour (Speed and Base Turning) ---
     # Speed and turning depend on the *final* state after considering pheromones
     burst_speeds = jnp.maximum(0.0, MEAN_BURST_SPEED + random.normal(key_speed, (num_ants,)) * STD_BURST_SPEED)
-    current_speed = jnp.where(final_behavioural_state == STATE_MOVING_BURST, burst_speeds, 0.0)
+    # Set speed to 0 if RESTING or ARRESTED
+    current_speed = jnp.where(final_behavioural_state == STATE_MOVING_BURST, burst_speeds, 0.0) # (logic is same, check ensures ARRESTED included)
 
+    # Set base turn to 0 if RESTING or ARRESTED
     burst_turn_noise = random.normal(key_turn, (num_ants,)) * TURN_RATE_STD * dt
     base_turn = jnp.where(final_behavioural_state == STATE_MOVING_BURST, burst_turn_noise, 0.0)
 
 
     # --- 4. Wall Avoidance / Following Turning ---
     # This calculation depends on the ant being *potentially* moving and near the wall
-    # Uses the *final* state to determine if wall turning should apply
+    # Uses the _final_ state to determine if wall turning should apply
     dist_from_center = jnp.linalg.norm(positions, axis=1)
     in_wall_zone = (dist_from_center > (ARENA_RADIUS - WALL_ZONE_WIDTH))
-    # Apply wall turn only if the ant *ended up* in the moving state
+    # Apply wall turn only if the ant _ended up_ in the MOVING state
     apply_wall_turn = in_wall_zone & (final_behavioural_state == STATE_MOVING_BURST)
 
     # Calculate radial_angle safely

@@ -30,11 +30,12 @@ TIMER_INTERVAL_MS = 16 # Target ~60 FPS for visualisation updates
 # 1x means 1 sim second per real second
 SPEED_LEVELS = (1, 4, 8, 16, 64, 128)
 
-# --- Colors ---
-COLOR_BACKGROUND = QColor(245, 245, 245)
-COLOR_ARENA = QColor(230, 220, 240)
-COLOR_MOVING = QColor(34, 34, 34)
-COLOR_RESTING = QColor(200, 50, 50)
+# --- Colours ---
+COLOUR_BACKGROUND = QColor(245, 245, 245)
+COLOUR_ARENA = QColor(230, 220, 240)
+COLOUR_MOVING = QColor(0, 0, 200)     # Blue
+COLOUR_RESTING = QColor(200, 50, 50)    # Red
+COLOUR_ARRESTED = QColor(0, 0, 0)       # Black
 
 class AntSimulationVisualiser(QWidget):
     def __init__(self):
@@ -202,11 +203,11 @@ class AntSimulationVisualiser(QWidget):
         if self.arena_pixel_radius <= 1:
             self.calculate_drawing_parameters()
 
-        painter.setBrush(COLOR_BACKGROUND)
+        painter.setBrush(COLOUR_BACKGROUND)
         painter.setPen(Qt.NoPen)
         painter.drawRect(self.rect())
 
-        painter.setBrush(COLOR_ARENA)
+        painter.setBrush(COLOUR_ARENA)
         arena_rect = QRectF(self.center_x - self.arena_pixel_radius,
                            self.center_y - self.arena_pixel_radius,
                            self.arena_pixel_radius * 2,
@@ -216,7 +217,7 @@ class AntSimulationVisualiser(QWidget):
         try:
             positions = jax.device_get(self.sim_state['position'])
             angles = jax.device_get(self.sim_state['angle'])
-            states = jax.device_get(self.sim_state['behavioral_state'])
+            states = jax.device_get(self.sim_state['behavioural_state'])
         except Exception as e:
              print(f"Error getting data from JAX state: {e}")
              painter.setPen(QColor("red"))
@@ -254,8 +255,14 @@ class AntSimulationVisualiser(QWidget):
                 QPointF(-pixel_length / 2.0, pixel_width / 2.0)
             ])
 
-            color = COLOR_RESTING if state == antsim.STATE_RESTING else COLOR_MOVING
-            painter.setBrush(QBrush(color))
+            # --- Assign Colour Based on State --- <<< MODIFIED LOGIC >>>
+            if state == antsim.STATE_RESTING:
+                colour = COLOUR_RESTING
+            elif state == antsim.STATE_ARRESTED:
+                colour = COLOUR_ARRESTED
+            else: # Default to Moving
+                colour = COLOUR_MOVING
+            painter.setBrush(QBrush(colour))
             painter.setPen(Qt.NoPen)
 
             painter.save()
