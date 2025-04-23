@@ -26,7 +26,7 @@ PHEROMONE_STEEPNESS = 4.0 # Controls how sharp the transition is around the thre
 MAX_PHEROMONE_STRENGTH = 1.0  # Max contribution of a single resting ant (scales the signal)
 # Calculate PHEROMONE_MIDPOINT_TIME based on PHEROMONE_MAX_TIMESTEP
 PHEROMONE_MAX_TIMESTEP = 2500
-PHEROMONE_ELU_TRANSITION_FRAC = 0.7 # (0 to 1) Fraction of T_max where growth becomes linear. TUNE ME!
+PHEROMONE_ELU_TRANSITION_FRAC = 0.4 # (0 to 1) Fraction of T_max where growth becomes linear. TUNE ME!
 PHEROMONE_ELU_STEEPNESS = 5.0       # (> 0) Controls the initial exponential rise steepness. TUNE ME!
 
 # <<< Wall Interaction Parameters >>>
@@ -39,12 +39,12 @@ STATE_MOVING_BURST = 1
 
 # State durations and burst speed parameters
 MEAN_REST_DURATION = 3.0   # Average time (in sim time units) to rest
-STD_REST_DURATION = 1.5
+STD_REST_DURATION = 2.5
 MEAN_BURST_DURATION = 7.0  # Average time (in sim time units) for a movement burst
-STD_BURST_DURATION = 1.5
+STD_BURST_DURATION = 2.5
 MEAN_BURST_SPEED = 6.0     # Average speed during a burst (units per dt)
 STD_BURST_SPEED = 1.0
-MIN_STATE_DURATION = 0.1   # Minimum duration for any state bout (in sim time units)# Turning rate during bursts
+MIN_STATE_DURATION = 0.2   # Minimum duration for any state bout (in sim time units)# Turning rate during bursts
 TURN_RATE_STD = 1.4
 
 # --- Initialization ---
@@ -71,7 +71,7 @@ def initialise_state(key, arena_radius):
     initial_durations = jnp.where(initial_states == STATE_RESTING, rest_durations, burst_durations)
     state = {
         'position': positions, 'angle': angles, 'speed': jnp.zeros(NUM_ANTS),
-        'behavioral_state': initial_states, 'time_in_state': time_in_state,
+        'behavioural_state': initial_states, 'time_in_state': time_in_state,
         'current_state_duration': initial_durations
     }
     return state
@@ -87,7 +87,7 @@ def update_step(state, key, t, dt):
     """Performs one vectorized update step using state machine, pheromones, and wall avoidance."""
     num_ants = state['position'].shape[0] # Use state size directly
     positions = state['position']
-    behavioral_state = state['behavioral_state']
+    behavioural_state = state['behavioural_state']
     time_in_state = state['time_in_state']
     current_state_duration = state['current_state_duration']
     angles = state['angle'] # Ant's current heading angle
@@ -99,7 +99,7 @@ def update_step(state, key, t, dt):
     # --- 1. Pheromone Influence Calculation --- <<< PHEROMONE >>> NEW BLOCK
 
     # Identify which ants are resting (potential pheromone emitters)
-    is_resting_emitter = (behavioral_state == STATE_RESTING)
+    is_resting_emitter = (behavioural_state == STATE_RESTING)
 
     # Calculate pairwise distances (could reuse collision calculation later, but do here for clarity)
     delta_x_pair = positions[:, 0, None] - positions[None, :, 0]
@@ -169,7 +169,7 @@ def update_step(state, key, t, dt):
     rand_stop = random.uniform(key_pheromone_stop, (num_ants,))
 
     # Determine which *moving* ants actually stop due to pheromone this step
-    stops_due_to_pheromone = (behavioral_state == STATE_MOVING_BURST) & \
+    stops_due_to_pheromone = (behavioural_state == STATE_MOVING_BURST) & \
                              (rand_stop < prob_stop_pheromone)
 
     # --- 2. State Transition Logic (Duration-based + Pheromone Override) ---
@@ -179,7 +179,7 @@ def update_step(state, key, t, dt):
     duration_expired = (next_time_in_state_if_no_stop >= current_state_duration)
 
     # Potential next state if duration expires
-    potential_next_state = jnp.where(duration_expired, 1 - behavioral_state, behavioral_state)
+    potential_next_state = jnp.where(duration_expired, 1 - behavioural_state, behavioural_state)
 
     # Draw new durations for *all* ants (simpler than conditional drawing)
     # We'll select the correct one based on the *final* next state
@@ -199,7 +199,7 @@ def update_step(state, key, t, dt):
     # - Its current_state_duration becomes a *newly drawn* REST duration.
 
     # Final state is STATE_RESTING if stopped by pheromone, otherwise it's the potential_next_state
-    final_behavioral_state = jnp.where(stops_due_to_pheromone, STATE_RESTING, potential_next_state)
+    final_behavioural_state = jnp.where(stops_due_to_pheromone, STATE_RESTING, potential_next_state)
 
     # Final duration: if stopped by pheromone, use a new rest duration; otherwise use potential_next_duration
     final_current_state_duration = jnp.where(stops_due_to_pheromone, new_rest_durations, potential_next_duration)
@@ -208,13 +208,13 @@ def update_step(state, key, t, dt):
     final_time_in_state = jnp.where(stops_due_to_pheromone, 0.0, potential_next_time_in_state)
 
 
-    # --- 3. State-Dependent Behavior (Speed and Base Turning) ---
+    # --- 3. State-Dependent Behaviour (Speed and Base Turning) ---
     # Speed and turning depend on the *final* state after considering pheromones
     burst_speeds = jnp.maximum(0.0, MEAN_BURST_SPEED + random.normal(key_speed, (num_ants,)) * STD_BURST_SPEED)
-    current_speed = jnp.where(final_behavioral_state == STATE_MOVING_BURST, burst_speeds, 0.0)
+    current_speed = jnp.where(final_behavioural_state == STATE_MOVING_BURST, burst_speeds, 0.0)
 
     burst_turn_noise = random.normal(key_turn, (num_ants,)) * TURN_RATE_STD * dt
-    base_turn = jnp.where(final_behavioral_state == STATE_MOVING_BURST, burst_turn_noise, 0.0)
+    base_turn = jnp.where(final_behavioural_state == STATE_MOVING_BURST, burst_turn_noise, 0.0)
 
 
     # --- 4. Wall Avoidance / Following Turning ---
@@ -223,7 +223,7 @@ def update_step(state, key, t, dt):
     dist_from_center = jnp.linalg.norm(positions, axis=1)
     in_wall_zone = (dist_from_center > (ARENA_RADIUS - WALL_ZONE_WIDTH))
     # Apply wall turn only if the ant *ended up* in the moving state
-    apply_wall_turn = in_wall_zone & (final_behavioral_state == STATE_MOVING_BURST)
+    apply_wall_turn = in_wall_zone & (final_behavioural_state == STATE_MOVING_BURST)
 
     # Calculate radial_angle safely
     pos_x = positions[:, 0]
@@ -307,7 +307,7 @@ def update_step(state, key, t, dt):
         'position': clamped_positions,
         'angle': new_angles,
         'speed': current_speed, # Speed reflects the final state
-        'behavioral_state': final_behavioral_state,
+        'behavioural_state': final_behavioural_state,
         'time_in_state': final_time_in_state,
         'current_state_duration': final_current_state_duration
     }
