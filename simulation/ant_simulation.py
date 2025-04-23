@@ -1,9 +1,9 @@
+import os
+
 import jax
+import jax.nn
 import jax.numpy as jnp
 import jax.random as random
-import jax.nn
-
-import os
 try:
     PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 except NameError:
@@ -21,9 +21,9 @@ DT = 0.1  # Simulation time step (arbitrary units)
 
 # <<< PHEROMONE >>> Parameters for Arrestant Pheromone
 PHEROMONE_RADIUS = ANT_LENGTH * 2.0 # How far the 'signal' reaches
-PHEROMONE_THRESHOLD = 1.5 # Signal strength (~num neighbours) for 50% stop probability (must be > 1.0)
+PHEROMONE_THRESHOLD = 2.5 # Signal strength (~num neighbours) for 50% stop probability (must be > 1.0)
 PHEROMONE_STEEPNESS = 4.0 # Controls how sharp the transition is around the threshold
-MAX_PHEROMONE_STRENGTH = 1.0  # Max contribution of a single resting ant (scales the signal)
+MAX_PHEROMONE_STRENGTH = 0.9  # Max contribution of a single resting ant (scales the signal)
 # Calculate PHEROMONE_MIDPOINT_TIME based on PHEROMONE_MAX_TIMESTEP
 PHEROMONE_MAX_TIMESTEP = 2500
 PHEROMONE_ELU_TRANSITION_FRAC = 0.4 # (0 to 1) Fraction of T_max where growth becomes linear. TUNE ME!
@@ -46,9 +46,10 @@ STD_BURST_DURATION = 2.5
 MEAN_BURST_SPEED = 6.0     # Average speed during a burst (units per dt)
 STD_BURST_SPEED = 1.0
 MEAN_ARREST_DURATION = 5.5 # Shorter duration for pheromone-induced stop? TUNE ME!
-STD_ARREST_DURATION = 10.0  # TUNE ME!
+STD_ARREST_DURATION = 3.0  # TUNE ME!
 MIN_STATE_DURATION = 0.2   # Minimum duration for any state bout (in sim time units)# Turning rate during bursts
 TURN_RATE_STD = 1.4
+ARREST2BURST_GRACE_PERIOD = 2.0 # Sim time units ant must be MOVING before pheromone arrest applies again.
 
 # --- Initialization ---
 
@@ -75,7 +76,8 @@ def initialise_state(key, arena_radius):
     state = {
         'position': positions, 'angle': angles, 'speed': jnp.zeros(NUM_ANTS),
         'behavioural_state': initial_states, 'time_in_state': time_in_state,
-        'current_state_duration': initial_durations
+        'current_state_duration': initial_durations,
+        'previous_behavioural_state': initial_states
     }
     return state
 
@@ -92,6 +94,7 @@ def update_step(state, key, t, dt):
     positions = state['position']
     behavioural_state = state['behavioural_state']
     time_in_state = state['time_in_state']
+    previous_behavioural_state = state['previous_behavioural_state']
     current_state_duration = state['current_state_duration']
     angles = state['angle'] # Ant's current heading angle
 
@@ -175,12 +178,22 @@ def update_step(state, key, t, dt):
     # Roll the dice for checking if _arrested_ ants should _stay_ arrested
     rand_arrest_check = random.uniform(key_arrest_check, (num_ants,))
 
-    # This determines the transition MOVING -> ARRESTED
-    stops_due_to_pheromone = (behavioural_state == STATE_MOVING_BURST) & \
-                             (rand_stop < prob_stop_pheromone)
-    # Determine if currently _arrested_ ants are _kept_ arrested by pheromones
+    # --- Determine if pheromone arrest applies ---
+    # Condition 1: Is the ant currently moving?
+    is_moving = (behavioural_state == STATE_MOVING_BURST)
+    # Condition 2: Did the ant *just* escape arrest? Check if previous state was ARRESTED.
+    just_escaped_arrest = (previous_behavioural_state == STATE_ARRESTED)
+    # Condition 3: Has the grace period *not* passed yet for those that just escaped?
+    in_grace_period = just_escaped_arrest & (time_in_state <= ARREST2BURST_GRACE_PERIOD) # Use time_in_state since it resets on transition
+    # Condition 4: Does the random roll trigger the stop based on pheromone probability?
+    pheromone_check_passed = (rand_stop < prob_stop_pheromone)
+
+    # Final check: Arrest happens if moving, NOT in grace period, AND pheromone check passes
+    stops_due_to_pheromone = is_moving & (~in_grace_period) & pheromone_check_passed # <<< MODIFIED LOGIC >>>
+    # Determine if currently _arrested_ ants are _kept_ arrested by pheromones (logic remains the same)
     stays_arrested_due_to_pheromone = (behavioural_state == STATE_ARRESTED) & \
-                                      (rand_arrest_check < prob_stop_pheromone) # <<< NEW LOGIC >>>
+                                      (rand_arrest_check < prob_stop_pheromone)
+
 
     # --- 2. State Transition Logic (Duration-based + Pheromone Override) ---
 
@@ -238,6 +251,7 @@ def update_step(state, key, t, dt):
     final_behavioural_state = next_state_val
     final_current_state_duration = next_duration
     final_time_in_state = next_time
+    final_previous_behavioural_state = behavioural_state
 
 
     # --- 3. State-Dependent Behaviour (Speed and Base Turning) ---
@@ -343,6 +357,7 @@ def update_step(state, key, t, dt):
         'speed': current_speed, # Speed reflects the final state
         'behavioural_state': final_behavioural_state,
         'time_in_state': final_time_in_state,
-        'current_state_duration': final_current_state_duration
+        'current_state_duration': final_current_state_duration,
+        'previous_behavioural_state': final_previous_behavioural_state
     }
     return next_state
