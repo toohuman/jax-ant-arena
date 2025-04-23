@@ -16,7 +16,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 # --- Import core simulation components ---
 from ant_simulation import (
-    NUM_ANTS, ARENA_RADIUS, ANT_LENGTH, ANT_WIDTH, DT, STATE_RESTING,
+    NUM_ANTS, ARENA_RADIUS, ANT_LENGTH, ANT_WIDTH, DT, STATE_RESTING, STATE_ARRESTED, STATE_MOVING_BURST,
     # Core functions
     initialise_state, update_step
 )
@@ -119,9 +119,14 @@ def update_frame_from_history(frame_index):
         ant_patches[i].set_xy(vertices)
 
         # Update color based on state
-        state_is_resting = behavioral_states[i] == STATE_RESTING
-        color = 'red' if state_is_resting else 'black'
-        ant_patches[i].set_color(color)
+        state = behavioral_states[i]
+        if state == STATE_RESTING:
+            color = 'red'
+        elif state == STATE_ARRESTED:
+            color = 'black'
+        else: # STATE_MOVING_BURST
+            color = 'blue'
+        ant_patches[i].set_color(color) # Use the determined color string
 
         updated_artists.append(ant_patches[i])
 
