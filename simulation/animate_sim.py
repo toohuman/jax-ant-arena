@@ -92,7 +92,7 @@ def update_frame_from_history(frame_index):
     state_data = simulation_history[sim_step_index]
     positions = state_data['position'] # Should be numpy arrays now
     angles = state_data['angle']
-    behavioral_states = state_data['behavioral_state']
+    behavioural_states = state_data['behavioural_state']
     actual_sim_time = state_data['sim_time'] # Get the actual time for accurate display
     updated_artists = []
     for i in range(NUM_ANTS):
@@ -119,7 +119,7 @@ def update_frame_from_history(frame_index):
         ant_patches[i].set_xy(vertices)
 
         # Update color based on state
-        state = behavioral_states[i]
+        state = behavioural_states[i]
         if state == STATE_RESTING:
             color = 'red'
         elif state == STATE_ARRESTED:
@@ -154,7 +154,7 @@ if __name__ == "__main__": # Standard practice for executable scripts
         state_to_store = {
             'position': np.array(current_state['position']),
             'angle': np.array(current_state['angle']),
-            'behavioral_state': np.array(current_state['behavioral_state']),
+            'behavioural_state': np.array(current_state['behavioural_state']),
             'sim_time': current_sim_time # Store the precise time for this state
         }
         simulation_history.append(state_to_store)
