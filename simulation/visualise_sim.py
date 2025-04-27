@@ -18,13 +18,14 @@ except ImportError:
     sys.exit(1)
 
 
-MAX_SIMULATION_TIME = 500   # None = run indefinitely
+MAX_SIMULATION_TIME = 1000   # None = run indefinitely
 
 
 # --- Visualisation Parameters ---
 WINDOW_SIZE = 800
 ARENA_PADDING = 20 # Pixel padding around the arena
 VISUAL_ANT_MULTIPLIER = 1.0
+VISUAL_PHEROMONE_ALPHA = 60 # Transparency (0-255), lower is more transparent
 TIMER_INTERVAL_MS = 16 # Target ~60 FPS for visualisation updates
 # Define the speed levels (multipliers relative to real-time)
 # 1x means 1 sim second per real second
@@ -36,6 +37,7 @@ COLOUR_ARENA = QColor(230, 220, 240)
 COLOUR_MOVING = QColor(0, 0, 200)     # Blue
 COLOUR_RESTING = QColor(200, 50, 50)    # Red
 COLOUR_ARRESTED = QColor(0, 0, 0)       # Black
+COLOUR_PHEROMONE = QColor(150, 50, 200, VISUAL_PHEROMONE_ALPHA) # Purple/Pinkish, semi-transparent
 
 class AntSimulationVisualiser(QWidget):
     def __init__(self):
@@ -223,6 +225,30 @@ class AntSimulationVisualiser(QWidget):
              painter.setPen(QColor("red"))
              painter.drawText(20, 20, "Error accessing JAX state.")
              return
+
+        # --- Draw Pheromone Radii (for emitters) ---
+        # Calculate the pheromone radius in screen pixels
+        pheromone_pixel_radius = antsim.PHEROMONE_RADIUS * self.scale_factor
+
+        for i in range(antsim.NUM_ANTS):
+            state = states[i]
+
+            # Check if the ant is an emitter (Resting or Arrested)
+            is_emitter = (state == antsim.STATE_RESTING) or (state == antsim.STATE_ARRESTED)
+
+            if is_emitter:
+                sim_x, sim_y = positions[i]
+                screen_x = self.center_x + sim_x * self.scale_factor
+                screen_y = self.center_y - sim_y * self.scale_factor
+
+                # Draw the pheromone radius circle
+                painter.setBrush(QBrush(COLOUR_PHEROMONE))
+                painter.setPen(Qt.NoPen) # No outline for the pheromone radius
+                pheromone_rect = QRectF(screen_x - pheromone_pixel_radius,
+                                       screen_y - pheromone_pixel_radius,
+                                       pheromone_pixel_radius * 2,
+                                       pheromone_pixel_radius * 2)
+                painter.drawEllipse(pheromone_rect)
 
         for i in range(antsim.NUM_ANTS):
             sim_x, sim_y = positions[i]

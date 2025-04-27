@@ -19,17 +19,18 @@ K_PUSH = 0.1                  # How strongly ants push each other apart (0 to 1)
 
 DT = 0.1  # Simulation time step (arbitrary units)
 
-# <<< PHEROMONE >>> Parameters for Arrestant Pheromone
+# Parameters for Arrestant Pheromone
 PHEROMONE_RADIUS = ANT_LENGTH * 2.0 # How far the 'signal' reaches
+DISCRETE_PHEROMONE = True
 PHEROMONE_THRESHOLD = 2.5 # Signal strength (~num neighbours) for 50% stop probability (must be > 1.0)
 PHEROMONE_STEEPNESS = 4.0 # Controls how sharp the transition is around the threshold
 MAX_PHEROMONE_STRENGTH = 0.9  # Max contribution of a single resting ant (scales the signal)
 # Calculate PHEROMONE_MIDPOINT_TIME based on PHEROMONE_MAX_TIMESTEP
-PHEROMONE_MAX_TIMESTEP = 2500
+PHEROMONE_MAX_TIMESTEP = 250
 PHEROMONE_ELU_TRANSITION_FRAC = 0.4 # (0 to 1) Fraction of T_max where growth becomes linear. TUNE ME!
 PHEROMONE_ELU_STEEPNESS = 5.0       # (> 0) Controls the initial exponential rise steepness. TUNE ME!
 
-# <<< Wall Interaction Parameters >>>
+# Wall Interaction Parameters
 WALL_ZONE_WIDTH = ANT_LENGTH * 1.5 # How far from the wall the turning response starts
 WALL_AVOID_STRENGTH = 0.9          # How strongly ants turn towards center (rad/sec)
 
@@ -124,16 +125,8 @@ def update_step(state, key, t, dt):
     # Broadcasting is_emitter to compare against each column (j)
     pheromone_signal_matrix = jnp.where(within_radius, is_emitter[None, :], False)
 
-    # Exclude self-influence (set diagonal to False)
-    # An ant cannot detect its own pheromone if it were resting
-    mask_no_self = ~jnp.eye(num_ants, dtype=bool)
-    pheromone_signal_matrix = jnp.where(mask_no_self, pheromone_signal_matrix, False)
-
-    # Count emitting neighbours for each ant (sum across columns for each row i)
-    num_resting_neighbours = jnp.sum(pheromone_signal_matrix, axis=1)
-
     # --- Calculate time-dependent individual pheromone strength using ELU ---
-    T_max = PHEROMONE_MAX_TIMESTEP * dt # Total time over which strength grows
+    T_max = PHEROMONE_MAX_TIMESTEP # Total time over which strength grows
     k = PHEROMONE_ELU_STEEPNESS        # Steepness factor (k)
     x_offset = PHEROMONE_ELU_TRANSITION_FRAC # Transition fraction (x_offset)
     alpha = 1.0 # Standard ELU alpha
@@ -164,9 +157,30 @@ def update_step(state, key, t, dt):
     current_individual_strength = jnp.clip(strength_raw, 0.0, MAX_PHEROMONE_STRENGTH)
 
     # --- Calculate probability of stopping using a sigmoid based on signal strength ---
-    # Total signal strength = num_neighbours * time_dependent_strength
-    signal_strength = num_resting_neighbours.astype(jnp.float32) * current_individual_strength
-    # Calculate probability using a sigmoid function centered around the threshold
+    # Exclude self-influence (set diagonal to False for neighbour checks)
+    mask_no_self = ~jnp.eye(num_ants, dtype=bool)
+    pheromone_signal_matrix = jnp.where(mask_no_self, pheromone_signal_matrix, False)
+
+    # --- Calculate Total Signal Strength based on DISCRETE_PHEROMONE flag ---
+    def calculate_signal_strength(is_discrete):
+        if is_discrete:
+            # Discrete: Count emitting neighbours * current individual strength
+            num_resting_neighbours = jnp.sum(pheromone_signal_matrix, axis=1)
+            strength = num_resting_neighbours.astype(jnp.float32) * current_individual_strength
+        else:
+            # Continuous: Sum of (individual strength * distance falloff) for each neighbour
+            # Calculate distance scaling factor (linear falloff from 1 at dist=0 to 0 at dist=PHEROMONE_RADIUS)
+            # Clip distance to avoid negative scaling or issues at radius edge
+            clipped_distances = jnp.minimum(distances_pair, PHEROMONE_RADIUS)
+            # Add epsilon to denominator for safety if PHEROMONE_RADIUS is tiny
+            distance_scale = (PHEROMONE_RADIUS - clipped_distances) / (PHEROMONE_RADIUS + 1e-9)
+            # Calculate contribution of each neighbour j to ant i (masked by signal matrix)
+            individual_contributions = current_individual_strength * distance_scale * pheromone_signal_matrix.astype(jnp.float32)
+            # Total signal strength is the sum of contributions for each ant i
+            strength = jnp.sum(individual_contributions, axis=1)
+        return strength
+
+    signal_strength = calculate_signal_strength(DISCRETE_PHEROMONE) # <<< MODIFIED >>> Calculate based on flag
     exponent = -PHEROMONE_STEEPNESS * (signal_strength - PHEROMONE_THRESHOLD)
     # Clip exponent to avoid potential overflow/underflow in jnp.exp
     clipped_exponent = jnp.clip(exponent, -20.0, 20.0)
