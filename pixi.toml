@@ -12,8 +12,8 @@ animate = "python simulation/animate_sim.py"
 
 [dependencies]
 python = ">=3.13.3,<3.14"
-jax = ">=0.5.2,<0.6"
-jaxlib = ">=0.5.2,<0.6"
+jax = "*"
+jaxlib = "*"
 matplotlib = ">=3.10.1,<4"
 pyqt = ">=5.15.10,<6"
 tqdm = ">=4.67.1,<5"
