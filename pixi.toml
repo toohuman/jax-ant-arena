@@ -2,7 +2,7 @@
 authors = ["toohuman <michael.crosscombe@proton.me>"]
 channels = ["conda-forge"]
 name = "jax-ant-arena"
-platforms = ["osx-arm64"]
+platforms = ["osx-arm64", "linux-x86_64"]
 version = "0.1.0"
 
 [tasks]
