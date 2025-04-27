@@ -25,7 +25,7 @@ MAX_SIMULATION_TIME = 1000   # None = run indefinitely
 WINDOW_SIZE = 800
 ARENA_PADDING = 20 # Pixel padding around the arena
 VISUAL_ANT_MULTIPLIER = 1.0
-VISUAL_PHEROMONE_ALPHA = 60 # Transparency (0-255), lower is more transparent
+VISUAL_PHEROMONE_ALPHA = 20 # Transparency (0-255), lower is more transparent
 TIMER_INTERVAL_MS = 16 # Target ~60 FPS for visualisation updates
 # Define the speed levels (multipliers relative to real-time)
 # 1x means 1 sim second per real second
@@ -249,6 +249,7 @@ class AntSimulationVisualiser(QWidget):
                                        pheromone_pixel_radius * 2,
                                        pheromone_pixel_radius * 2)
                 painter.drawEllipse(pheromone_rect)
+        # ------------------------------------------
 
         for i in range(antsim.NUM_ANTS):
             sim_x, sim_y = positions[i]
