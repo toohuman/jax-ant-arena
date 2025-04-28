@@ -21,7 +21,7 @@ DT = 0.1  # Simulation time step (arbitrary units)
 
 # Parameters for Arrestant Pheromone
 PHEROMONE_RADIUS = ANT_LENGTH * 2.0 # How far the 'signal' reaches
-DISCRETE_PHEROMONE = True
+DISCRETE_PHEROMONE = True   # If False, pheromone of an individual is inversely proportional to distance
 PHEROMONE_THRESHOLD = 2.5 # Signal strength (~num neighbours) for 50% stop probability (must be > 1.0)
 PHEROMONE_STEEPNESS = 4.0 # Controls how sharp the transition is around the threshold
 MAX_PHEROMONE_STRENGTH = 0.9  # Max contribution of a single resting ant (scales the signal)
