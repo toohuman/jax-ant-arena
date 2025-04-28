@@ -10,10 +10,21 @@ visualise = "python simulation/visualise_sim.py"
 visualize = "python simulation/visualise_sim.py"
 animate = "python simulation/animate_sim.py"
 
+setup-gpu = "pip install --upgrade 'jax[cuda12]' -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
+
 [dependencies]
 python = ">=3.13.3,<3.14"
-jax = "*"
-jaxlib = "*"
 matplotlib = ">=3.10.1,<4"
 pyqt = ">=5.15.10,<6"
 tqdm = ">=4.67.1,<5"
+
+
+# Platform-specific dependencies
+[target.linux-64.dependencies]
+pip = "*"
+
+# Platform-specific dependencies
+[target.osx-arm64.dependencies]
+jax = "*"
+jaxlib = "*"
+
