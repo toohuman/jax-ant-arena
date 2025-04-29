@@ -1,0 +1,40 @@
+simulation:
+  num_ants: 64
+  arena_radius: 50.0
+  dt: 0.1
+  ant_length: 2.5
+  k_push: 0.1
+pheromones:
+  use_grid: true
+  radius: 5.0
+  discrete_direct: true
+  threshold: 2.5
+  steepness: 4.0
+  max_strength: 0.9
+  max_timestep: 250
+  elu_transition_frac: 0.4
+  elu_steepness: 5.0
+grid:
+  resolution: 100
+  decay_rate: 0.99
+  deposition_rate: 1.0
+walls:
+  zone_width_factor: 1.5
+  avoid_strength: 0.9
+states:
+  mean_rest_duration: 3.0
+  std_rest_duration: 2.5
+  mean_burst_duration: 7.0
+  std_burst_duration: 2.5
+  mean_burst_speed: 6.0
+  std_burst_speed: 1.0
+  mean_arrest_duration: 5.5
+  std_arrest_duration: 3.0
+  min_state_duration: 0.2
+  turn_rate_std: 1.4
+  arrest_grace_period: 2.0
+visualisation:
+  max_sim_time: 1000
+  window_size: 800
+  ant_multiplier: 1.0
+  grid_max_colour: 5.0
