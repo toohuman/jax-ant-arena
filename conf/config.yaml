@@ -1,0 +1,54 @@
+defaults:
+  - _self_
+
+# --- Simulation Parameters ---
+num_ants: 64
+arena_radius: 50.0  # mm
+ant_length: 2.5     # mm
+ant_width: 1.25     # mm
+ant_radius: 1.25    # mm
+k_push: 0.1
+dt: 0.1
+
+# --- Pheromone Parameters ---
+use_grid_pheromones: False
+pheromone_radius_multiplier: 2.0 # PHEROMONE_RADIUS = ANT_LENGTH * multiplier
+discrete_pheromone: True
+pheromone_threshold: 2.5
+pheromone_steepness: 4.0
+max_pheromone_strength: 0.9
+pheromone_max_timestep: 250
+pheromone_elu_transition_frac: 0.4
+pheromone_elu_steepness: 5.0
+
+# --- Grid Pheromone Parameters ---
+grid_resolution: 100
+pheromone_decay_rate: 0.99
+pheromone_deposition_rate: 1.0
+
+# --- Wall Interaction Parameters ---
+wall_zone_width_multiplier: 1.5 # WALL_ZONE_WIDTH = ANT_LENGTH * multiplier
+wall_avoid_strength: 0.9
+
+# --- State durations and burst speed parameters ---
+mean_rest_duration: 3.0
+std_rest_duration: 2.5
+mean_burst_duration: 7.0
+std_burst_duration: 2.5
+mean_burst_speed: 6.0
+std_burst_speed: 1.0
+mean_arrest_duration: 5.5
+std_arrest_duration: 3.0
+min_state_duration: 0.2
+turn_rate_std: 1.4
+arrest2burst_grace_period: 2.0
+
+# --- Visualisation Parameters (moved from visualise_sim.py) ---
+window_size: 800
+arena_padding: 20
+visual_ant_multiplier: 1.0
+timer_interval_ms: 16
+speed_levels: [1, 4, 8, 16, 64, 128] # Use list syntax in YAML
+grid_max_pheromone_for_colour: 5.0
+visual_direct_pheromone_alpha: 20
+max_simulation_time: 1000

@@ -17,6 +17,8 @@ python = ">=3.13.3,<3.14"
 matplotlib = ">=3.10.1,<4"
 pyqt = ">=5.15.10,<6"
 tqdm = ">=4.67.1,<5"
+hydra-core = ">=1.3.2,<2"
+omegaconf = ">=2.3.0,<3"
 
 
 # Platform-specific dependencies

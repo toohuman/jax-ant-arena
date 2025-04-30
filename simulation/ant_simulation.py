@@ -10,55 +10,12 @@ try:
 except NameError:
     PROJECT_ROOT = os.path.abspath('..') # Or provide a default path
 
-# --- Simulation Parameters ---
-NUM_ANTS = 64
-ARENA_RADIUS = 50.0  # mm
-ANT_LENGTH = 2.5     # mm
-ANT_WIDTH = ANT_LENGTH / 2.0
-ANT_RADIUS = ANT_LENGTH / 2.0
-K_PUSH = 0.1
-
-DT = 0.1
-
-# --- Pheromone Parameters ---
-USE_GRID_PHEROMONES = False # Flag to switch between grid and direct detection
-PHEROMONE_RADIUS = ANT_LENGTH * 2.0 # Range for direct detection OR grid sampling radius
-DISCRETE_PHEROMONE = True   # Applies only if USE_GRID_PHEROMONES = False
-PHEROMONE_THRESHOLD = 2.5 # Signal strength threshold for 50% stop probability
-PHEROMONE_STEEPNESS = 4.0 # Sigmoid steepness
-MAX_PHEROMONE_STRENGTH = 0.9 # Max individual pheromone strength/deposition rate
-PHEROMONE_MAX_TIMESTEP = 250 # Time (in state) to reach max strength/deposition
-PHEROMONE_ELU_TRANSITION_FRAC = 0.4
-PHEROMONE_ELU_STEEPNESS = 5.0
-
-# --- Grid Pheromone Parameters (Only used if USE_GRID_PHEROMONES = True) ---
-GRID_RESOLUTION = 100 # Number of cells along each axis of the pheromone grid
-GRID_CELL_SIZE = 2.0 * ARENA_RADIUS / GRID_RESOLUTION # Size of each grid cell
-PHEROMONE_GRID_RADIUS_CELLS = int(jnp.ceil(PHEROMONE_RADIUS / GRID_CELL_SIZE)) # Radius in grid cells for sampling
-PHEROMONE_DECAY_RATE = 0.99 # Multiplicative decay factor per DT
-PHEROMONE_DEPOSITION_RATE = 1.0 # Scaling factor for deposition amount per DT
-
-# --- Wall Interaction Parameters ---
-WALL_ZONE_WIDTH = ANT_LENGTH * 1.5
-WALL_AVOID_STRENGTH = 0.9
 
 # --- State constants ---
 STATE_RESTING = 0
 STATE_MOVING_BURST = 1
 STATE_ARRESTED = 2
 
-# --- State durations and burst speed parameters ---
-MEAN_REST_DURATION = 3.0
-STD_REST_DURATION = 2.5
-MEAN_BURST_DURATION = 7.0
-STD_BURST_DURATION = 2.5
-MEAN_BURST_SPEED = 6.0
-STD_BURST_SPEED = 1.0
-MEAN_ARREST_DURATION = 5.5
-STD_ARREST_DURATION = 3.0
-MIN_STATE_DURATION = 0.2
-TURN_RATE_STD = 1.4
-ARREST2BURST_GRACE_PERIOD = 2.0
 
 # --- Helper Functions ---
 
@@ -66,18 +23,24 @@ def wrap_angle(angle):
     """Helper function to wrap angles to [-pi, pi]"""
     return (angle + jnp.pi) % (2 * jnp.pi) - jnp.pi
 
-def draw_durations(key, mean, std, num_samples):
-    """Draws durations from Normal dist, clipped at MIN_STATE_DURATION."""
+def draw_durations(key, mean, std, num_samples, min_state_duration):
+    """Draws durations from Normal dist, clipped at min_state_duration."""
     durations = mean + random.normal(key, (num_samples,)) * std
-    return jnp.maximum(MIN_STATE_DURATION, durations)
+    return jnp.maximum(min_state_duration, durations)
 
 # Function to calculate individual pheromone strength based on time in state
 @jax.jit
-def calculate_individual_pheromone_strength(time_in_state):
+def calculate_individual_pheromone_strength(
+    time_in_state,
+    pheromone_max_timestep,
+    pheromone_elu_steepness,
+    pheromone_elu_transition_frac,
+    max_pheromone_strength
+):
     """Calculates the pheromone strength/deposition rate for each ant based on its time_in_state."""
-    T_max = PHEROMONE_MAX_TIMESTEP
-    k = PHEROMONE_ELU_STEEPNESS
-    x_offset = PHEROMONE_ELU_TRANSITION_FRAC
+    T_max = pheromone_max_timestep
+    k = pheromone_elu_steepness
+    x_offset = pheromone_elu_transition_frac
     alpha = 1.0 # Standard ELU alpha
 
     # Ensure parameters are valid
@@ -86,7 +49,7 @@ def calculate_individual_pheromone_strength(time_in_state):
 
     # Calculate scaling constants A and B
     denom_A = k * (1.0 - x_offset) - (jnp.exp(-k * x_offset) - 1.0)
-    A = MAX_PHEROMONE_STRENGTH / (denom_A + 1e-9)
+    A = max_pheromone_strength / (denom_A + 1e-9)
     B = -A * (jnp.exp(-k * x_offset) - 1.0)
 
     # Calculate the input to ELU based on individual time_in_state
@@ -98,7 +61,7 @@ def calculate_individual_pheromone_strength(time_in_state):
     strength_raw = A * elu_val + B
 
     # Clip final strength
-    individual_strength = jnp.clip(strength_raw, 0.0, MAX_PHEROMONE_STRENGTH)
+    individual_strength = jnp.clip(strength_raw, 0.0, max_pheromone_strength)
     return individual_strength
 
 # Grid Helper Functions
@@ -151,8 +114,16 @@ vmapped_sample_grid_radius = jax.vmap(sample_grid_radius, in_axes=(0, None, None
 
 # --- Initialization ---
 
-def initialise_state(key, num_ants, arena_radius, grid_resolution): # Added num_ants, grid_res
+def initialise_state(key, params):
     """Initialises the state of all ants including the pheromone map."""
+    num_ants = params['num_ants'] # Example accessing param
+    arena_radius = params['arena_radius']
+    grid_resolution = params['grid_resolution']
+    mean_rest_duration = params['mean_rest_duration']
+    std_rest_duration = params['std_rest_duration']
+    mean_burst_duration = params['mean_burst_duration']
+    std_burst_duration = params['std_burst_duration']
+    
     key, pos_key, angle_key, state_key, duration_key = random.split(key, 5)
 
     # Initialise ant positions, angles, states
@@ -165,8 +136,8 @@ def initialise_state(key, num_ants, arena_radius, grid_resolution): # Added num_
 
     # Initialise state durations
     key_r, key_b = random.split(duration_key)
-    rest_durations = draw_durations(key_r, MEAN_REST_DURATION, STD_REST_DURATION, num_ants)
-    burst_durations = draw_durations(key_b, MEAN_BURST_DURATION, STD_BURST_DURATION, num_ants)
+    rest_durations = draw_durations(key_r, mean_rest_duration, std_rest_duration, num_ants)
+    burst_durations = draw_durations(key_b, mean_burst_duration, std_burst_duration, num_ants)
     initial_durations = jnp.where(initial_states == STATE_RESTING, rest_durations, burst_durations)
 
     # Initialise pheromone map
@@ -187,8 +158,8 @@ def initialise_state(key, num_ants, arena_radius, grid_resolution): # Added num_
 # --- Core Update Logic ---
 
 # Make parameters static for jitting, pass USE_GRID_PHEROMONES as arg
-@partial(jax.jit, static_argnames=("num_ants", "arena_radius", "grid_resolution", "use_grid_pheromones"))
-def update_step(state, key, dt, num_ants, arena_radius, grid_resolution, use_grid_pheromones):
+@partial(jax.jit, static_argnames=("num_ants", "arena_radius", "grid_resolution", "use_grid_pheromones", "dt"))
+def update_step(state, key, t, dt, num_ants, arena_radius, grid_resolution, use_grid_pheromones):
     """Performs one vectorised update step."""
 
     positions = state['position']
@@ -208,16 +179,34 @@ def update_step(state, key, dt, num_ants, arena_radius, grid_resolution, use_gri
     # Identify emitting ants (Resting OR Arrested)
     is_emitter = (behavioural_state == STATE_RESTING) | (behavioural_state == STATE_ARRESTED)
 
-    # Calculate individual pheromone strength based on time in state <<< REFACTORED >>>
-    # This strength is used for deposition (grid) or direct signal (direct)
-    individual_strength = calculate_individual_pheromone_strength(time_in_state)
+    # Calculate strength differently based on mode
+    if use_grid_pheromones:
+        # For grid deposition, strength depends on how long the ant has been in the state
+        individual_strength_for_deposition = calculate_individual_pheromone_strength(time_in_state)
+        # Strength for direct detection is not needed in grid mode
+        global_time_strength = 0.0 # Placeholder, not used
+    else:
+        # For direct detection, strength depends on global time 't' (original behaviour)
+        # Re-implement ELU calculation based on 't' here
+        T_max_t = PHEROMONE_MAX_TIMESTEP; k_t = PHEROMONE_ELU_STEEPNESS; x_offset_t = PHEROMONE_ELU_TRANSITION_FRAC; alpha_t = 1.0
+        k_t = jnp.maximum(1e-6, k_t); x_offset_t = jnp.clip(x_offset_t, 1e-6, 1.0 - 1e-6)
+        denom_A_t = k_t * (1.0 - x_offset_t) - (jnp.exp(-k_t * x_offset_t) - 1.0)
+        A_t = MAX_PHEROMONE_STRENGTH / (denom_A_t + 1e-9)
+        B_t = -A_t * (jnp.exp(-k_t * x_offset_t) - 1.0)
+        t_clamped_t = jnp.clip(t, 0.0, T_max_t)
+        x_elu_t = k_t * (t_clamped_t / (T_max_t + 1e-9) - x_offset_t)
+        elu_val_t = jax.nn.elu(x_elu_t, alpha=alpha_t)
+        strength_raw_t = A_t * elu_val_t + B_t
+        global_time_strength = jnp.clip(strength_raw_t, 0.0, MAX_PHEROMONE_STRENGTH)
+        # Deposition strength is not needed in direct mode
+        individual_strength_for_deposition = jnp.zeros_like(time_in_state) # Placeholder, not used
 
     # --- Pheromone Grid Update (Decay and Deposition) --- <<< NEW Section >>>
     # Apply decay to the entire map
     decayed_pheromone_map = pheromone_map * PHEROMONE_DECAY_RATE
 
     # Calculate deposition amount for emitters
-    deposition_amount = individual_strength * is_emitter * PHEROMONE_DEPOSITION_RATE * dt
+    deposition_amount = individual_strength_for_deposition * is_emitter * PHEROMONE_DEPOSITION_RATE * dt
 
     # Get grid indices for all ants (needed for deposition and maybe grid sampling)
     grid_indices = pos_to_grid_idx(positions, arena_radius, grid_resolution) # Shape: (num_ants, 2)
@@ -240,7 +229,8 @@ def update_step(state, key, dt, num_ants, arena_radius, grid_resolution, use_gri
         # The summed value from the grid is the signal strength
         return detected_pheromone
 
-    def calculate_signal_strength_direct(state_local, _pheromone_map_local): # Ignore map if direct
+    # Pass global_strength calculated based on 't'
+    def calculate_signal_strength_direct(state_local, global_strength):
         # --- This is the original direct detection logic, adapted slightly ---
         pos_local = state_local['position']
         b_state_local = state_local['behavioural_state']
@@ -265,23 +255,19 @@ def update_step(state, key, dt, num_ants, arena_radius, grid_resolution, use_gri
         mask_no_self = ~jnp.eye(num_ants, dtype=bool)
         pheromone_signal_matrix = jnp.where(mask_no_self, pheromone_signal_matrix, False)
 
-        # Get individual strength (already calculated based on time_in_state)
-        individual_strength_local = calculate_individual_pheromone_strength(t_in_state_local)
+        # Use the pre-calculated global_strength based on 't'
 
         # --- Calculate Total Signal Strength based on DISCRETE_PHEROMONE flag ---
         if DISCRETE_PHEROMONE:
-            # Discrete: Count emitting neighbours * their individual strength
-            # We need the strength of the *emitter* (j), not the receiver (i)
-            # Broadcast individual strength of emitters across rows
-            emitter_strength_broadcast = individual_strength_local[None, :]
-            # Sum the strength of emitting neighbours for each ant i
-            strength = jnp.sum(jnp.where(pheromone_signal_matrix, emitter_strength_broadcast, 0.0), axis=1)
+            # Discrete: Count emitting neighbours * the single global_strength value
+            num_emitting_neighbours = jnp.sum(pheromone_signal_matrix, axis=1)
+            strength = num_emitting_neighbours.astype(jnp.float32) * global_strength
         else:
             # Continuous: Sum of (emitter strength * distance falloff)
             clipped_distances = jnp.minimum(distances_pair, PHEROMONE_RADIUS)
             distance_scale = (PHEROMONE_RADIUS - clipped_distances) / (PHEROMONE_RADIUS + 1e-9)
-            # Broadcast individual strength of emitters across rows
-            emitter_strength_broadcast = individual_strength_local[None, :]
+            # Broadcast the single global_strength value
+            emitter_strength_broadcast = jnp.full((1, num_ants), global_strength)
             # Calculate contribution of each neighbour j to ant i
             individual_contributions = emitter_strength_broadcast * distance_scale * pheromone_signal_matrix.astype(jnp.float32)
             strength = jnp.sum(individual_contributions, axis=1)
@@ -291,10 +277,14 @@ def update_step(state, key, dt, num_ants, arena_radius, grid_resolution, use_gri
     # Use jax.lax.cond to select the signal strength calculation method
     signal_strength = jax.lax.cond(
         use_grid_pheromones,
-        calculate_signal_strength_grid,
-        calculate_signal_strength_direct,
-        state, # operand passed to both branches
-        updated_pheromone_map # operand passed to both branches (ignored by direct)
+        # True branch: Grid calculation (ignores strength_op)
+        lambda state_op, map_op, strength_op: calculate_signal_strength_grid(state_op, map_op),
+        # False branch: Direct calculation (ignores map_op internally)
+        lambda state_op, map_op, strength_op: calculate_signal_strength_direct(state_op, strength_op),
+        # Operands passed to both lambdas:
+        state,
+        updated_pheromone_map,
+        global_time_strength
     )
 
     # --- Calculate Probability of Stopping (Same logic as before) ---

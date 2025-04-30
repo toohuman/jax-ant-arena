@@ -1,10 +1,11 @@
 # visualise_sim.py
 import sys
 import time
-import json
 import jax
 import jax.numpy as jnp
 import jax.random as random
+import hydra
+from omegaconf import DictConfig
 from functools import partial
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QLabel
 from PyQt5.QtCore import QTimer, Qt, QPointF, QRectF
@@ -44,7 +45,7 @@ COLOUR_PHEROMONE_BASE = QColor(150, 50, 200) # Base colour for grid cells
 COLOUR_DIRECT_PHEROMONE = QColor(150, 50, 200, VISUAL_DIRECT_PHEROMONE_ALPHA)
 
 class AntSimulationVisualiser(QWidget):
-    def __init__(self):
+    def __init__(self, config):
         super().__init__()
         self.setWindowTitle("JAX Ant Simulation Visualiser")
         self.setGeometry(100, 100, WINDOW_SIZE, WINDOW_SIZE + 50) # Extra space for controls
@@ -57,9 +58,9 @@ class AntSimulationVisualiser(QWidget):
         # In a parameterised setup, these would come from a loaded config
         self.sim_state = antsim.initialise_state(
             subkey,
-            antsim.NUM_ANTS,
-            antsim.ARENA_RADIUS,
-            antsim.GRID_RESOLUTION
+            config["parameters"]["ants"]["num_ants"],
+            config["parameters"]["ants"]["arena_radius"],
+            config["parameters"]["ants"]["grid_resolution"]
         )
         self.sim_time = 0.0
         self.dt = antsim.DT # Simulation time step size
@@ -186,9 +187,9 @@ class AntSimulationVisualiser(QWidget):
             try:
                 current_state = self.sim_state
                 for _ in range(steps_to_run):
+                    step_time = self.sim_time + (_ * self.dt)
                     self.key, subkey = random.split(self.key)
-                    # Pass only the state and key to the jitted function
-                    current_state = self.jitted_update_fn(current_state, subkey)
+                    current_state = self.jitted_update_fn(current_state, subkey, step_time)
 
                 self.sim_state = current_state # Update state after all steps
                 self.sim_time += sim_time_advanced_this_frame # Update total time
@@ -338,17 +339,45 @@ class AntSimulationVisualiser(QWidget):
         painter.end()
 
 
-if __name__ == "__main__":
+@hydra.main(config_path="conf", config_name="config", version_base=None)
+def main(cfg: DictConfig):
+    print("Configuration used:")
+    print(OmegaConf.to_yaml(cfg))
+
+    # --- Prepare Parameters for Simulation ---
+    # Convert OmegaConf to a regular dictionary or a custom object if preferred
+    # This avoids potential issues with JAX tracing OmegaConf objects.
+    params = OmegaConf.to_container(cfg, resolve=True) # Resolve interpolations if any
+
+    # Calculate derived parameters and add them to the params dict
+    # It's often cleaner to do this here than relying on Hydra interpolations
+    # for things involving complex logic or multiple base parameters.
+    params['ant_width'] = params['ant_length'] / 2.0
+    params['ant_radius'] = params['ant_length'] / 2.0
+    if params['grid_resolution'] > 0:
+         params['grid_cell_size'] = 2.0 * params['arena_radius'] / params['grid_resolution']
+         params['pheromone_radius'] = params['ant_length'] * params['pheromone_radius_multiplier']
+         params['pheromone_grid_radius_cells'] = int(jnp.ceil(params['pheromone_radius'] / params['grid_cell_size']))
+    else:
+         params['grid_cell_size'] = 0.0
+         params['pheromone_grid_radius_cells'] = 0
+         params['pheromone_radius'] = params['ant_length'] * params['pheromone_radius_multiplier'] # Still needed for direct mode
+
+    params['wall_zone_width'] = params['ant_length'] * params['wall_zone_width_multiplier']
+    
     # --- JAX GPU/TPU Configuration (Optional but Recommended) ---
-    # try:
-    #     # If you have a GPU/TPU, uncomment these lines:
-    #     #jax.config.update('jax_platform_name', 'gpu') # or 'tpu'
-    #     #print("Using platform:", jax.lib.xla_bridge.get_backend().platform)
-    #     pass # Keep using default (CPU) if not specified
-    # except Exception as e:
-    #     print(f"Could not configure JAX platform: {e}")
+    try:
+        # If you have a GPU/TPU, uncomment these lines:
+        #jax.config.update('jax_platform_name', 'gpu') # or 'tpu'
+        #print("Using platform:", jax.lib.xla_bridge.get_backend().platform)
+        pass # Keep using default (CPU) if not specified
+    except Exception as e:
+        print(f"Could not configure JAX platform: {e}")
 
     app = QApplication(sys.argv)
     visualiser = AntSimulationVisualiser()
     visualiser.show()
     sys.exit(app.exec_())
+
+if __name__ == "__main__":
+    main()
