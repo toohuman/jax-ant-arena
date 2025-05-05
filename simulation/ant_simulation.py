@@ -16,9 +16,6 @@ STATE_RESTING = 0
 STATE_MOVING_BURST = 1
 STATE_ARRESTED = 2
 
-
-# --- Helper Functions ---
-
 def wrap_angle(angle):
     """Helper function to wrap angles to [-pi, pi]"""
     return (angle + jnp.pi) % (2 * jnp.pi) - jnp.pi
@@ -111,9 +108,6 @@ def sample_grid_radius(ant_pos_idx, pheromone_map, radius_cells, grid_resolution
 # mapped version for all ants
 vmapped_sample_grid_radius = jax.vmap(sample_grid_radius, in_axes=(0, None, None, None))
 
-
-# --- Initialization ---
-
 def initialise_state(key, params):
     """Initialises the state of all ants including the pheromone map."""
     num_ants = params['num_ants'] # Example accessing param
@@ -155,12 +149,43 @@ def initialise_state(key, params):
     }
     return state
 
-# --- Core Update Logic ---
-
 # Make parameters static for jitting, pass USE_GRID_PHEROMONES as arg
-@partial(jax.jit, static_argnames=("num_ants", "arena_radius", "grid_resolution", "use_grid_pheromones", "dt"))
-def update_step(state, key, t, dt, num_ants, arena_radius, grid_resolution, use_grid_pheromones):
+@partial(jax.jit, static_argnames=("params"))
+def update_step(state, key, t, params):
     """Performs one vectorised update step."""
+
+    num_ants = params['num_ants']
+    arena_radius = params['arena_radius']
+    grid_resolution = params['grid_resolution']
+    use_grid_pheromones = params['use_grid_pheromones']
+    dt = params['dt']
+    k_push = params['k_push']
+    pheromone_radius = params['pheromone_radius']
+    discrete_pheromone = params['discrete_pheromone']
+    pheromone_threshold = params['pheromone_threshold']
+    pheromone_steepness = params['pheromone_steepness']
+    pheromone_decay_rate = params['pheromone_decay_rate']
+    pheromone_deposition_rate = params['pheromone_deposition_rate']
+    pheromone_max_timestep = params['pheromone_max_timestep']
+    pheromone_elu_steepness = params['pheromone_elu_steepness']
+    pheromone_elu_transition_frac = params['pheromone_elu_transition_frac']
+    pheromone_elu_alpha = params['pheromone_elu_alpha']
+    pheromone_grid_radius_cells = params['pheromone_grid_radius_cells']
+    max_pheromone_strength = params['max_pheromone_strength']
+    individual_pheromone_strength = params['individual_pheromone_strength']
+    global_pheromone_strength = params['global_pheromone_strength']
+    arrest2burst_grace_period = params['arrest2burst_grace_period']
+    mean_rest_duration = params['mean_rest_duration']
+    std_rest_duration = params['std_rest_duration']
+    mean_burst_duration = params['mean_burst_duration']
+    std_burst_duration = params['std_burst_duration']
+    mean_arrest_duration = params['mean_arrest_duration']
+    std_arrest_duration = params['std_arrest_duration']
+    mean_burst_speed = params['mean_burst_speed']
+    std_burst_speed = params['std_burst_speed']
+    turn_rate_std = params['turn_rate_std']
+    wall_avoid_strength = params['wall_avoid_strength']
+    wall_zone_width = params['wall_zone_width']
 
     positions = state['position']
     behavioural_state = state['behavioural_state']
@@ -188,25 +213,25 @@ def update_step(state, key, t, dt, num_ants, arena_radius, grid_resolution, use_
     else:
         # For direct detection, strength depends on global time 't' (original behaviour)
         # Re-implement ELU calculation based on 't' here
-        T_max_t = PHEROMONE_MAX_TIMESTEP; k_t = PHEROMONE_ELU_STEEPNESS; x_offset_t = PHEROMONE_ELU_TRANSITION_FRAC; alpha_t = 1.0
+        T_max_t = pheromone_max_timestep; k_t = pheromone_elu_steepness; x_offset_t = pheromone_elu_transition_frac; alpha_t = 1.0
         k_t = jnp.maximum(1e-6, k_t); x_offset_t = jnp.clip(x_offset_t, 1e-6, 1.0 - 1e-6)
         denom_A_t = k_t * (1.0 - x_offset_t) - (jnp.exp(-k_t * x_offset_t) - 1.0)
-        A_t = MAX_PHEROMONE_STRENGTH / (denom_A_t + 1e-9)
+        A_t = max_pheromone_strength / (denom_A_t + 1e-9)
         B_t = -A_t * (jnp.exp(-k_t * x_offset_t) - 1.0)
         t_clamped_t = jnp.clip(t, 0.0, T_max_t)
         x_elu_t = k_t * (t_clamped_t / (T_max_t + 1e-9) - x_offset_t)
         elu_val_t = jax.nn.elu(x_elu_t, alpha=alpha_t)
         strength_raw_t = A_t * elu_val_t + B_t
-        global_time_strength = jnp.clip(strength_raw_t, 0.0, MAX_PHEROMONE_STRENGTH)
+        global_time_strength = jnp.clip(strength_raw_t, 0.0, max_pheromone_strength)
         # Deposition strength is not needed in direct mode
         individual_strength_for_deposition = jnp.zeros_like(time_in_state) # Placeholder, not used
 
     # --- Pheromone Grid Update (Decay and Deposition) --- <<< NEW Section >>>
     # Apply decay to the entire map
-    decayed_pheromone_map = pheromone_map * PHEROMONE_DECAY_RATE
+    decayed_pheromone_map = pheromone_map * pheromone_decay_rate
 
     # Calculate deposition amount for emitters
-    deposition_amount = individual_strength_for_deposition * is_emitter * PHEROMONE_DEPOSITION_RATE * dt
+    deposition_amount = individual_strength_for_deposition * is_emitter * pheromone_deposition_rate * dt
 
     # Get grid indices for all ants (needed for deposition and maybe grid sampling)
     grid_indices = pos_to_grid_idx(positions, arena_radius, grid_resolution) # Shape: (num_ants, 2)
@@ -224,7 +249,7 @@ def update_step(state, key, t, dt, num_ants, arena_radius, grid_resolution, use_
         # Sample the grid around each ant
         # grid_indices already calculated
         detected_pheromone = vmapped_sample_grid_radius(
-            grid_indices, pheromone_map_local, PHEROMONE_GRID_RADIUS_CELLS, grid_resolution
+            grid_indices, pheromone_map_local, pheromone_grid_radius_cells, grid_resolution
         )
         # The summed value from the grid is the signal strength
         return detected_pheromone
@@ -246,7 +271,7 @@ def update_step(state, key, t, dt, num_ants, arena_radius, grid_resolution, use_
         distances_pair = jnp.sqrt(distances_sq_pair)
 
         # Determine which ants (j) are within pheromone radius of each ant (i)
-        within_radius = (distances_pair < PHEROMONE_RADIUS)
+        within_radius = (distances_pair < pheromone_radius)
 
         # Pheromone signal matrix: True if j is emitter and within radius of i
         pheromone_signal_matrix = jnp.where(within_radius, is_emitter_local[None, :], False)
@@ -257,15 +282,15 @@ def update_step(state, key, t, dt, num_ants, arena_radius, grid_resolution, use_
 
         # Use the pre-calculated global_strength based on 't'
 
-        # --- Calculate Total Signal Strength based on DISCRETE_PHEROMONE flag ---
-        if DISCRETE_PHEROMONE:
+        # --- Calculate Total Signal Strength based on discrete_pheromone flag ---
+        if discrete_pheromone:
             # Discrete: Count emitting neighbours * the single global_strength value
             num_emitting_neighbours = jnp.sum(pheromone_signal_matrix, axis=1)
             strength = num_emitting_neighbours.astype(jnp.float32) * global_strength
         else:
             # Continuous: Sum of (emitter strength * distance falloff)
-            clipped_distances = jnp.minimum(distances_pair, PHEROMONE_RADIUS)
-            distance_scale = (PHEROMONE_RADIUS - clipped_distances) / (PHEROMONE_RADIUS + 1e-9)
+            clipped_distances = jnp.minimum(distances_pair, pheromone_radius)
+            distance_scale = (pheromone_radius - clipped_distances) / (pheromone_radius + 1e-9)
             # Broadcast the single global_strength value
             emitter_strength_broadcast = jnp.full((1, num_ants), global_strength)
             # Calculate contribution of each neighbour j to ant i
@@ -288,7 +313,7 @@ def update_step(state, key, t, dt, num_ants, arena_radius, grid_resolution, use_
     )
 
     # --- Calculate Probability of Stopping (Same logic as before) ---
-    exponent = -PHEROMONE_STEEPNESS * (signal_strength - PHEROMONE_THRESHOLD)
+    exponent = -pheromone_steepness * (signal_strength - pheromone_threshold)
     clipped_exponent = jnp.clip(exponent, -20.0, 20.0)
     prob_stop_pheromone = 1.0 / (1.0 + jnp.exp(clipped_exponent))
 
@@ -298,7 +323,7 @@ def update_step(state, key, t, dt, num_ants, arena_radius, grid_resolution, use_
     # Determine if pheromone arrest applies (Same logic as before)
     is_moving = (behavioural_state == STATE_MOVING_BURST)
     just_escaped_arrest = (previous_behavioural_state == STATE_ARRESTED)
-    in_grace_period = just_escaped_arrest & (time_in_state <= ARREST2BURST_GRACE_PERIOD)
+    in_grace_period = just_escaped_arrest & (time_in_state <= arrest2burst_grace_period)
     pheromone_check_passed = (rand_stop < prob_stop_pheromone)
     stops_due_to_pheromone = is_moving & (~in_grace_period) & pheromone_check_passed
 
@@ -309,9 +334,9 @@ def update_step(state, key, t, dt, num_ants, arena_radius, grid_resolution, use_
     duration_expired = (next_time_in_state_if_no_stop >= current_state_duration)
 
     # Draw new durations
-    new_rest_durations = draw_durations(key_dur_rest, MEAN_REST_DURATION, STD_REST_DURATION, num_ants)
-    new_burst_durations = draw_durations(key_dur_burst, MEAN_BURST_DURATION, STD_BURST_DURATION, num_ants)
-    new_arrest_durations = draw_durations(key_dur_arrest, MEAN_ARREST_DURATION, STD_ARREST_DURATION, num_ants)
+    new_rest_durations = draw_durations(key_dur_rest, mean_rest_duration, std_rest_duration, num_ants)
+    new_burst_durations = draw_durations(key_dur_burst, mean_burst_duration, std_burst_duration, num_ants)
+    new_arrest_durations = draw_durations(key_dur_arrest, mean_arrest_duration, std_arrest_duration, num_ants)
 
     # Determine Final State, Duration, and Time-in-State
     next_state_val = behavioural_state
@@ -354,16 +379,16 @@ def update_step(state, key, t, dt, num_ants, arena_radius, grid_resolution, use_
 
     # --- 3. State-Dependent Behaviour (Speed and Base Turning) ---
     # (Remains the same - depends on final_behavioural_state)
-    burst_speeds = jnp.maximum(0.0, MEAN_BURST_SPEED + random.normal(key_speed, (num_ants,)) * STD_BURST_SPEED)
+    burst_speeds = jnp.maximum(0.0, mean_burst_speed + random.normal(key_speed, (num_ants,)) * std_burst_speed)
     current_speed = jnp.where(final_behavioural_state == STATE_MOVING_BURST, burst_speeds, 0.0)
-    burst_turn_noise = random.normal(key_turn, (num_ants,)) * TURN_RATE_STD * dt
+    burst_turn_noise = random.normal(key_turn, (num_ants,)) * turn_rate_std * dt
     base_turn = jnp.where(final_behavioural_state == STATE_MOVING_BURST, burst_turn_noise, 0.0)
 
 
     # --- 4. Wall Avoidance Turning ---
     # (Remains the same - depends on final_behavioural_state and position)
     dist_from_center = jnp.linalg.norm(positions, axis=1)
-    in_wall_zone = (dist_from_center > (arena_radius - WALL_ZONE_WIDTH))
+    in_wall_zone = (dist_from_center > (arena_radius - wall_zone_width))
     apply_wall_turn = in_wall_zone & (final_behavioural_state == STATE_MOVING_BURST)
 
     pos_x = positions[:, 0]
@@ -373,7 +398,7 @@ def update_step(state, key, t, dt, num_ants, arena_radius, grid_resolution, use_
     radial_angle = jnp.arctan2(safe_y, safe_x)
     desired_angle_to_center = wrap_angle(radial_angle + jnp.pi)
     angle_error_to_center = wrap_angle(angles - desired_angle_to_center)
-    wall_avoid_turn_magnitude = -jnp.sign(angle_error_to_center) * WALL_AVOID_STRENGTH * dt
+    wall_avoid_turn_magnitude = -jnp.sign(angle_error_to_center) * wall_avoid_strength * dt
     total_turn = base_turn + jnp.where(apply_wall_turn, wall_avoid_turn_magnitude, 0.0)
     new_angles = wrap_angle(angles + total_turn)
 
@@ -422,6 +447,6 @@ def update_step(state, key, t, dt, num_ants, arena_radius, grid_resolution, use_
         'time_in_state': final_time_in_state,
         'current_state_duration': final_current_state_duration,
         'previous_behavioural_state': final_previous_behavioural_state,
-        'pheromone_map': updated_pheromone_map # <<< MODIFIED >>> Store the updated map
+        'pheromone_map': updated_pheromone_map
     }
     return next_state
