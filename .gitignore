@@ -1,7 +1,7 @@
 # Ignore experimental directory
 data
 experimental
-logs
+outputs
 visualisation
 
 

@@ -117,6 +117,7 @@ def initialise_state(key, params):
     std_rest_duration = params['std_rest_duration']
     mean_burst_duration = params['mean_burst_duration']
     std_burst_duration = params['std_burst_duration']
+    min_state_duration = params['min_state_duration']
     
     key, pos_key, angle_key, state_key, duration_key = random.split(key, 5)
 
@@ -130,8 +131,8 @@ def initialise_state(key, params):
 
     # Initialise state durations
     key_r, key_b = random.split(duration_key)
-    rest_durations = draw_durations(key_r, mean_rest_duration, std_rest_duration, num_ants)
-    burst_durations = draw_durations(key_b, mean_burst_duration, std_burst_duration, num_ants)
+    rest_durations = draw_durations(key_r, mean_rest_duration, std_rest_duration, num_ants, min_state_duration)
+    burst_durations = draw_durations(key_b, mean_burst_duration, std_burst_duration, num_ants, min_state_duration)
     initial_durations = jnp.where(initial_states == STATE_RESTING, rest_durations, burst_durations)
 
     # Initialise pheromone map
@@ -149,13 +150,12 @@ def initialise_state(key, params):
     }
     return state
 
-# Make parameters static for jitting, pass USE_GRID_PHEROMONES as arg
-@partial(jax.jit, static_argnames=("params"))
 def update_step(state, key, t, params):
     """Performs one vectorised update step."""
 
     num_ants = params['num_ants']
     arena_radius = params['arena_radius']
+    ant_length = params['ant_length']
     grid_resolution = params['grid_resolution']
     use_grid_pheromones = params['use_grid_pheromones']
     dt = params['dt']
@@ -169,11 +169,8 @@ def update_step(state, key, t, params):
     pheromone_max_timestep = params['pheromone_max_timestep']
     pheromone_elu_steepness = params['pheromone_elu_steepness']
     pheromone_elu_transition_frac = params['pheromone_elu_transition_frac']
-    pheromone_elu_alpha = params['pheromone_elu_alpha']
     pheromone_grid_radius_cells = params['pheromone_grid_radius_cells']
     max_pheromone_strength = params['max_pheromone_strength']
-    individual_pheromone_strength = params['individual_pheromone_strength']
-    global_pheromone_strength = params['global_pheromone_strength']
     arrest2burst_grace_period = params['arrest2burst_grace_period']
     mean_rest_duration = params['mean_rest_duration']
     std_rest_duration = params['std_rest_duration']
@@ -183,6 +180,7 @@ def update_step(state, key, t, params):
     std_arrest_duration = params['std_arrest_duration']
     mean_burst_speed = params['mean_burst_speed']
     std_burst_speed = params['std_burst_speed']
+    min_state_duration = params['min_state_duration']
     turn_rate_std = params['turn_rate_std']
     wall_avoid_strength = params['wall_avoid_strength']
     wall_zone_width = params['wall_zone_width']
@@ -212,8 +210,10 @@ def update_step(state, key, t, params):
         global_time_strength = 0.0 # Placeholder, not used
     else:
         # For direct detection, strength depends on global time 't' (original behaviour)
-        # Re-implement ELU calculation based on 't' here
-        T_max_t = pheromone_max_timestep; k_t = pheromone_elu_steepness; x_offset_t = pheromone_elu_transition_frac; alpha_t = 1.0
+        T_max_t = pheromone_max_timestep
+        k_t = pheromone_elu_steepness
+        x_offset_t = pheromone_elu_transition_frac
+        alpha_t = 1.0
         k_t = jnp.maximum(1e-6, k_t); x_offset_t = jnp.clip(x_offset_t, 1e-6, 1.0 - 1e-6)
         denom_A_t = k_t * (1.0 - x_offset_t) - (jnp.exp(-k_t * x_offset_t) - 1.0)
         A_t = max_pheromone_strength / (denom_A_t + 1e-9)
@@ -226,7 +226,7 @@ def update_step(state, key, t, params):
         # Deposition strength is not needed in direct mode
         individual_strength_for_deposition = jnp.zeros_like(time_in_state) # Placeholder, not used
 
-    # --- Pheromone Grid Update (Decay and Deposition) --- <<< NEW Section >>>
+    # --- Pheromone Grid Update (Decay and Deposition)
     # Apply decay to the entire map
     decayed_pheromone_map = pheromone_map * pheromone_decay_rate
 
@@ -334,9 +334,9 @@ def update_step(state, key, t, params):
     duration_expired = (next_time_in_state_if_no_stop >= current_state_duration)
 
     # Draw new durations
-    new_rest_durations = draw_durations(key_dur_rest, mean_rest_duration, std_rest_duration, num_ants)
-    new_burst_durations = draw_durations(key_dur_burst, mean_burst_duration, std_burst_duration, num_ants)
-    new_arrest_durations = draw_durations(key_dur_arrest, mean_arrest_duration, std_arrest_duration, num_ants)
+    new_rest_durations = draw_durations(key_dur_rest, mean_rest_duration, std_rest_duration, num_ants, min_state_duration)
+    new_burst_durations = draw_durations(key_dur_burst, mean_burst_duration, std_burst_duration, num_ants, min_state_duration)
+    new_arrest_durations = draw_durations(key_dur_arrest, mean_arrest_duration, std_arrest_duration, num_ants, min_state_duration)
 
     # Determine Final State, Duration, and Time-in-State
     next_state_val = behavioural_state
@@ -416,13 +416,13 @@ def update_step(state, key, t, params):
     distances_sq_coll = delta_x_coll**2 + delta_y_coll**2
     distances_coll = jnp.sqrt(distances_sq_coll + 1e-9)
     distances_coll = jnp.where(jnp.eye(num_ants, dtype=bool), jnp.inf, distances_coll)
-    collision_radius = 2 * ANT_RADIUS
+    collision_radius = ant_length
     is_overlapping = distances_coll < collision_radius
     overlap_depth = jnp.maximum(0, collision_radius - distances_coll)
     inv_distance = 1.0 / (distances_coll + 1e-9)
     push_dir_x = delta_x_coll * inv_distance
     push_dir_y = delta_y_coll * inv_distance
-    push_magnitude = overlap_depth * K_PUSH
+    push_magnitude = overlap_depth * k_push
     total_push_x = jnp.sum(jnp.where(is_overlapping, push_dir_x * push_magnitude, 0.0), axis=1)
     total_push_y = jnp.sum(jnp.where(is_overlapping, push_dir_y * push_magnitude, 0.0), axis=1)
     pushed_positions_x = potential_new_positions[:, 0] + total_push_x

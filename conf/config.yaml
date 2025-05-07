@@ -44,11 +44,12 @@ turn_rate_std: 1.4
 arrest2burst_grace_period: 2.0
 
 # --- Visualisation Parameters (moved from visualise_sim.py) ---
-window_size: 800
-arena_padding: 20
-visual_ant_multiplier: 1.0
-timer_interval_ms: 16
-speed_levels: [1, 4, 8, 16, 64, 128] # Use list syntax in YAML
-grid_max_pheromone_for_colour: 5.0
-visual_direct_pheromone_alpha: 20
-max_simulation_time: 1000
+visualisation:
+  window_size: 800
+  arena_padding: 20
+  visual_ant_multiplier: 1.0
+  timer_interval_ms: 16
+  speed_levels: [1, 4, 8, 16, 64, 128] # Use list syntax in YAML
+  grid_max_pheromone_for_colour: 5.0
+  visual_direct_pheromone_alpha: 20
+  max_simulation_time: 1000

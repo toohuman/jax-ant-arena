@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from functools import partial
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QLabel
 from PyQt5.QtCore import QTimer, Qt, QPointF, QRectF
@@ -19,9 +19,6 @@ except ImportError:
     print("Error: Could not import ant_simulation.py.")
     print("Please ensure it's in the same directory or accessible in your PYTHONPATH.")
     sys.exit(1)
-
-
-MAX_SIMULATION_TIME = 1000   # None = run indefinitely
 
 
 # --- Visualisation Parameters ---
@@ -45,10 +42,23 @@ COLOUR_PHEROMONE_BASE = QColor(150, 50, 200) # Base colour for grid cells
 COLOUR_DIRECT_PHEROMONE = QColor(150, 50, 200, VISUAL_DIRECT_PHEROMONE_ALPHA)
 
 class AntSimulationVisualiser(QWidget):
-    def __init__(self, config):
+    def __init__(self, params: dict, cfg: DictConfig):
         super().__init__()
         self.setWindowTitle("JAX Ant Simulation Visualiser")
-        self.setGeometry(100, 100, WINDOW_SIZE, WINDOW_SIZE + 50) # Extra space for controls
+        self.setGeometry(100, 100, cfg.visualisation.window_size, cfg.visualisation.window_size + 50) # Extra space for controls
+
+        # Store params and config if needed later
+        self.params = params
+        self.cfg = cfg
+
+        # --- Create the JITted update function ---
+        # 1. Create a version of update_step with self.params "baked in"
+        #    using partial. This binds self.params to the 'params' argument.
+        update_fn = partial(antsim.update_step, params=self.params)
+
+        # 2. JIT *this* new function. JAX will trace the values inside
+        #    self.params when it compiles this specific version.
+        self.jitted_update_fn = jax.jit(update_fn)
 
         # --- JAX Simulation State ---
         self.key = random.PRNGKey(0)
@@ -56,14 +66,9 @@ class AntSimulationVisualiser(QWidget):
         # Initialise state using the updated signature from antsim
         # We get parameters directly from the imported module for simplicity here
         # In a parameterised setup, these would come from a loaded config
-        self.sim_state = antsim.initialise_state(
-            subkey,
-            config["parameters"]["ants"]["num_ants"],
-            config["parameters"]["ants"]["arena_radius"],
-            config["parameters"]["ants"]["grid_resolution"]
-        )
+        self.sim_state = antsim.initialise_state(subkey, self.params)
         self.sim_time = 0.0
-        self.dt = antsim.DT # Simulation time step size
+        self.dt = self.params['dt'] # Simulation time step size
 
         # --- Real-Time Synchronization ---
         self.simulation_time_debt = 0.0
@@ -73,17 +78,6 @@ class AntSimulationVisualiser(QWidget):
         # --- Visualization Control ---
         self.current_speed_level_index = 0 # Start at 1x speed
         self.speedup_factor = SPEED_LEVELS[self.current_speed_level_index]
-
-        # Use partial to fix the static arguments for the JIT compilation
-        self.update_fn = partial(
-            antsim.update_step,
-            dt=self.dt,
-            num_ants=antsim.NUM_ANTS,
-            arena_radius=antsim.ARENA_RADIUS,
-            grid_resolution=antsim.GRID_RESOLUTION,
-            use_grid_pheromones=antsim.USE_GRID_PHEROMONES
-        )
-        self.jitted_update_fn = jax.jit(self.update_fn)
 
         # --- UI Elements ---
         self.speed_button = QPushButton(f"Speed: x{self.speedup_factor}", self)
@@ -110,16 +104,17 @@ class AntSimulationVisualiser(QWidget):
         self.arena_pixel_radius = 1
         self.scale_factor = 1.0
         self.grid_cell_pixel_size = 1.0
+        self.max_simulation_time = cfg.visualisation.max_simulation_time
 
         # --- Timer ---
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_simulation)
-        self.timer.start(TIMER_INTERVAL_MS)
+        self.timer.start(cfg.visualisation.timer_interval_ms)
 
     def update_status_label(self):
         """ Updates the status label. """
         status_text = "Running" if self.is_running else "Finished"
-        pheromone_mode = "Grid" if antsim.USE_GRID_PHEROMONES else "Direct"
+        pheromone_mode = "Grid" if self.params['use_grid_pheromones'] else "Direct" # Use params
         self.status_label.setText(f"Status: {status_text} ({pheromone_mode}) | Sim Time: {self.sim_time:.2f}")
         self.speed_button.setText(f"Speed: x{self.speedup_factor}")
 
@@ -128,32 +123,32 @@ class AntSimulationVisualiser(QWidget):
         super().resizeEvent(event)
 
     def calculate_drawing_parameters(self):
-        """ Calculates center, scaling, and grid cell size. """
+        """ Calculates center, scaling, and grid cell size using params and cfg. """
         draw_height = self.height() - 50
         draw_width = self.width()
         drawable_size = min(draw_width, draw_height)
 
         self.center_x = draw_width / 2
         self.center_y = draw_height / 2
-        self.arena_pixel_radius = (drawable_size / 2) - ARENA_PADDING
+        self.arena_pixel_radius = (drawable_size / 2) - self.cfg.visualisation.arena_padding # Use cfg
 
-        if antsim.ARENA_RADIUS > 1e-6:
-            self.scale_factor = self.arena_pixel_radius / antsim.ARENA_RADIUS
+        arena_radius_sim = self.params['arena_radius'] # Use params
+        if arena_radius_sim > 1e-6:
+            self.scale_factor = self.arena_pixel_radius / arena_radius_sim
         else:
             self.scale_factor = 1.0
 
-        # Calculate grid cell size in pixels
-        if antsim.GRID_RESOLUTION > 0:
-            # Total width of arena in pixels / number of cells
-            self.grid_cell_pixel_size = (self.arena_pixel_radius * 2) / antsim.GRID_RESOLUTION
+        grid_resolution = self.params['grid_resolution'] # Use params
+        if grid_resolution > 0:
+            self.grid_cell_pixel_size = (self.arena_pixel_radius * 2) / grid_resolution
         else:
             self.grid_cell_pixel_size = 1.0
 
     def cycle_speed(self):
-        """ Cycles through the defined speed levels relative to real-time. """
+        """ Cycles through the defined speed levels. """
         self.current_speed_level_index = (self.current_speed_level_index + 1) % len(SPEED_LEVELS)
         self.speedup_factor = SPEED_LEVELS[self.current_speed_level_index]
-        self.simulation_time_debt = 0.0
+        self.simulation_time_debt = 0.0 # Reset debt when changing speed
         self.update_status_label()
 
     def update_simulation(self):
@@ -164,7 +159,7 @@ class AntSimulationVisualiser(QWidget):
         if not self.is_running:
             return # Don't do anything if simulation is stopped
         
-        if MAX_SIMULATION_TIME and self.sim_time >= MAX_SIMULATION_TIME:
+        if self.max_simulation_time and self.sim_time >= self.max_simulation_time:
             if self.is_running:
                 self.is_running = False
                 self.timer.stop()
@@ -186,13 +181,16 @@ class AntSimulationVisualiser(QWidget):
         if steps_to_run > 0:
             try:
                 current_state = self.sim_state
-                for _ in range(steps_to_run):
-                    step_time = self.sim_time + (_ * self.dt)
+                # NOTE: Pass dynamic args (state, key, t) to the pre-compiled function
+                # The 'params' argument is already baked in via partial/JIT decorator
+                for step_idx in range(steps_to_run):
+                    step_time = self.sim_time + (step_idx * self.dt)
                     self.key, subkey = random.split(self.key)
+                    # Pass only dynamic arguments here:
                     current_state = self.jitted_update_fn(current_state, subkey, step_time)
 
-                self.sim_state = current_state # Update state after all steps
-                self.sim_time += sim_time_advanced_this_frame # Update total time
+                self.sim_state = current_state
+                self.sim_time += sim_time_advanced_this_frame
 
             except Exception as e:
                 print(f"Error during JAX simulation step: {e}")
@@ -233,7 +231,7 @@ class AntSimulationVisualiser(QWidget):
             positions = jax.device_get(self.sim_state['position'])
             angles = jax.device_get(self.sim_state['angle'])
             states = jax.device_get(self.sim_state['behavioural_state'])
-            if antsim.USE_GRID_PHEROMONES:
+            if self.params['use_grid_pheromones']:
                 pheromone_map = jax.device_get(self.sim_state['pheromone_map'])
             else:
                 pheromone_map = None # Not needed if not using grid
@@ -245,9 +243,11 @@ class AntSimulationVisualiser(QWidget):
              return
 
         # --- Draw Pheromone Grid (if enabled) ---
-        if antsim.USE_GRID_PHEROMONES and pheromone_map is not None and self.grid_cell_pixel_size > 0.1:
+        use_grid = self.params['use_grid_pheromones'] # Use params
+        grid_res = self.params['grid_resolution']   # Use params
+        if use_grid and pheromone_map is not None and self.grid_cell_pixel_size > 0.1:
             painter.setPen(Qt.NoPen)
-            max_val = jnp.maximum(GRID_MAX_PHEROMONE_FOR_COLOUR, 1e-6)
+            max_val = jnp.maximum(self.cfg.visualisation.grid_max_pheromone_for_colour, 1e-6) # Use cfg
 
             for r in range(antsim.GRID_RESOLUTION):
                 for c in range(antsim.GRID_RESOLUTION):
@@ -268,15 +268,15 @@ class AntSimulationVisualiser(QWidget):
                                                     self.grid_cell_pixel_size))
 
         # --- Draw Pheromone Radii (if Direct mode is enabled) --- <<< MODIFIED Section >>>
-        elif not antsim.USE_GRID_PHEROMONES:
+        elif not use_grid:
             # Calculate the pheromone radius in screen pixels
-            pheromone_pixel_radius = antsim.PHEROMONE_RADIUS * self.scale_factor
-
+            pheromone_pixel_radius = self.params['pheromone_radius'] * self.scale_factor
+            num_ants = self.params['num_ants']
             # Set brush and pen for drawing radii
             painter.setBrush(QBrush(COLOUR_DIRECT_PHEROMONE)) # Use the dedicated colour
             painter.setPen(Qt.NoPen) # No outline for the pheromone radius
 
-            for i in range(antsim.NUM_ANTS):
+            for i in range(num_ants):
                 state = states[i]
                 # Check if the ant is an emitter (Resting or Arrested)
                 is_emitter = (state == antsim.STATE_RESTING) or (state == antsim.STATE_ARRESTED)
@@ -295,7 +295,12 @@ class AntSimulationVisualiser(QWidget):
 
 
         # --- Draw Ants ---
-        for i in range(antsim.NUM_ANTS):
+        num_ants = self.params['num_ants'] # Use params
+        ant_length = self.params['ant_length'] # Use params
+        ant_width = self.params['ant_width'] # Use params (calculated)
+        vis_multiplier = self.cfg.visualisation.visual_ant_multiplier # Use cfg
+
+        for i in range(num_ants):
             sim_x, sim_y = positions[i]
             angle_rad = angles[i]
             state = states[i]
@@ -304,13 +309,11 @@ class AntSimulationVisualiser(QWidget):
             screen_y = self.center_y - sim_y * self.scale_factor # Invert Y for screen
 
             # Calculate Ant Pixel Size
-            sim_length = antsim.ANT_LENGTH
-            sim_width = antsim.ANT_WIDTH
-            pixel_length = sim_length * self.scale_factor * VISUAL_ANT_MULTIPLIER
-            pixel_width = sim_width * self.scale_factor * VISUAL_ANT_MULTIPLIER
+            pixel_length = ant_length * self.scale_factor * vis_multiplier
+            pixel_width = ant_width * self.scale_factor * vis_multiplier
             min_pixel_size = 2.0
             pixel_length = max(min_pixel_size, pixel_length)
-            pixel_width = max(min_pixel_size * (sim_width / sim_length), pixel_width)
+            pixel_width = max(min_pixel_size * (ant_width / ant_length), pixel_width)
 
             # Define Ant Polygon
             ant_poly = QPolygonF([
@@ -339,7 +342,7 @@ class AntSimulationVisualiser(QWidget):
         painter.end()
 
 
-@hydra.main(config_path="conf", config_name="config", version_base=None)
+@hydra.main(config_path="../conf", config_name="config", version_base=None)
 def main(cfg: DictConfig):
     print("Configuration used:")
     print(OmegaConf.to_yaml(cfg))
@@ -374,8 +377,11 @@ def main(cfg: DictConfig):
     except Exception as e:
         print(f"Could not configure JAX platform: {e}")
 
-    app = QApplication(sys.argv)
-    visualiser = AntSimulationVisualiser()
+    app = QApplication.instance() # Check if already exists
+    if app is None:
+         app = QApplication(sys.argv)
+
+    visualiser = AntSimulationVisualiser(params, cfg)
     visualiser.show()
     sys.exit(app.exec_())
 
