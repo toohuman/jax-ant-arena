@@ -1,5 +1,6 @@
 defaults:
   - _self_
+  - pheromones: direct
 
 # --- Simulation Parameters ---
 num_ants: 64
@@ -9,22 +10,6 @@ ant_width: 1.25     # mm
 ant_radius: 1.25    # mm
 k_push: 0.1
 dt: 0.1
-
-# --- Pheromone Parameters ---
-use_grid_pheromones: False
-pheromone_radius_multiplier: 2.0 # PHEROMONE_RADIUS = ANT_LENGTH * multiplier
-discrete_pheromone: True
-pheromone_threshold: 2.5
-pheromone_steepness: 4.0
-max_pheromone_strength: 0.9
-pheromone_max_timestep: 250
-pheromone_elu_transition_frac: 0.4
-pheromone_elu_steepness: 5.0
-
-# --- Grid Pheromone Parameters ---
-grid_resolution: 100
-pheromone_decay_rate: 0.99
-pheromone_deposition_rate: 1.0
 
 # --- Wall Interaction Parameters ---
 wall_zone_width_multiplier: 1.5 # WALL_ZONE_WIDTH = ANT_LENGTH * multiplier
@@ -53,3 +38,11 @@ visualisation:
   grid_max_pheromone_for_colour: 5.0
   visual_direct_pheromone_alpha: 20
   max_simulation_time: 1000
+
+# --- Hydra settings ---
+hydra:
+  run:
+    dir: outputs/${pheromones.name}/${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: multirun/${pheromones.name}/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.num}

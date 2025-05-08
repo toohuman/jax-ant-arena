@@ -114,7 +114,7 @@ class AntSimulationVisualiser(QWidget):
     def update_status_label(self):
         """ Updates the status label. """
         status_text = "Running" if self.is_running else "Finished"
-        pheromone_mode = "Grid" if self.params['use_grid_pheromones'] else "Direct" # Use params
+        pheromone_mode = "Grid" if self.params['pheromones']['use_grid_pheromones'] else "Direct" # Use params
         self.status_label.setText(f"Status: {status_text} ({pheromone_mode}) | Sim Time: {self.sim_time:.2f}")
         self.speed_button.setText(f"Speed: x{self.speedup_factor}")
 
@@ -138,7 +138,7 @@ class AntSimulationVisualiser(QWidget):
         else:
             self.scale_factor = 1.0
 
-        grid_resolution = self.params['grid_resolution'] # Use params
+        grid_resolution = self.params['pheromones']['grid_resolution'] # Use params
         if grid_resolution > 0:
             self.grid_cell_pixel_size = (self.arena_pixel_radius * 2) / grid_resolution
         else:
@@ -231,7 +231,7 @@ class AntSimulationVisualiser(QWidget):
             positions = jax.device_get(self.sim_state['position'])
             angles = jax.device_get(self.sim_state['angle'])
             states = jax.device_get(self.sim_state['behavioural_state'])
-            if self.params['use_grid_pheromones']:
+            if self.params['pheromones']['use_grid_pheromones']:
                 pheromone_map = jax.device_get(self.sim_state['pheromone_map'])
             else:
                 pheromone_map = None # Not needed if not using grid
@@ -243,14 +243,14 @@ class AntSimulationVisualiser(QWidget):
              return
 
         # --- Draw Pheromone Grid (if enabled) ---
-        use_grid = self.params['use_grid_pheromones'] # Use params
-        grid_res = self.params['grid_resolution']   # Use params
+        use_grid = self.params['pheromones']['use_grid_pheromones'] # Use params
+        grid_res = self.params['pheromones']['grid_resolution']   # Use params
         if use_grid and pheromone_map is not None and self.grid_cell_pixel_size > 0.1:
             painter.setPen(Qt.NoPen)
             max_val = jnp.maximum(self.cfg.visualisation.grid_max_pheromone_for_colour, 1e-6) # Use cfg
 
-            for r in range(antsim.GRID_RESOLUTION):
-                for c in range(antsim.GRID_RESOLUTION):
+            for r in range(grid_res):
+                for c in range(grid_res):
                     value = pheromone_map[r, c]
                     if value > 1e-4:
                         screen_x = (self.center_x - self.arena_pixel_radius) + c * self.grid_cell_pixel_size
@@ -270,7 +270,7 @@ class AntSimulationVisualiser(QWidget):
         # --- Draw Pheromone Radii (if Direct mode is enabled) --- <<< MODIFIED Section >>>
         elif not use_grid:
             # Calculate the pheromone radius in screen pixels
-            pheromone_pixel_radius = self.params['pheromone_radius'] * self.scale_factor
+            pheromone_pixel_radius = self.params['pheromones']['pheromone_radius'] * self.scale_factor
             num_ants = self.params['num_ants']
             # Set brush and pen for drawing radii
             painter.setBrush(QBrush(COLOUR_DIRECT_PHEROMONE)) # Use the dedicated colour
@@ -357,14 +357,14 @@ def main(cfg: DictConfig):
     # for things involving complex logic or multiple base parameters.
     params['ant_width'] = params['ant_length'] / 2.0
     params['ant_radius'] = params['ant_length'] / 2.0
-    if params['grid_resolution'] > 0:
-         params['grid_cell_size'] = 2.0 * params['arena_radius'] / params['grid_resolution']
-         params['pheromone_radius'] = params['ant_length'] * params['pheromone_radius_multiplier']
-         params['pheromone_grid_radius_cells'] = int(jnp.ceil(params['pheromone_radius'] / params['grid_cell_size']))
+    if params['pheromones']['grid_resolution'] > 0:
+         params['grid_cell_size'] = 2.0 * params['arena_radius'] / params['pheromones']['grid_resolution']
+         params['pheromones']['pheromone_radius'] = params['ant_length'] * params['pheromones']['pheromone_radius_multiplier']
+         params['pheromones']['grid_radius_cells'] = int(jnp.ceil(params['pheromones']['pheromone_radius'] / params['grid_cell_size']))
     else:
          params['grid_cell_size'] = 0.0
-         params['pheromone_grid_radius_cells'] = 0
-         params['pheromone_radius'] = params['ant_length'] * params['pheromone_radius_multiplier'] # Still needed for direct mode
+         params['pheromones']['grid_radius_cells'] = 0
+         params['pheromones']['pheromone_radius'] = params['ant_length'] * params['pheromones']['pheromone_radius_multiplier']
 
     params['wall_zone_width'] = params['ant_length'] * params['wall_zone_width_multiplier']
     

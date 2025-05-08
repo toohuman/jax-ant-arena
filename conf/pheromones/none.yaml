@@ -1,0 +1,9 @@
+name: none
+
+# Core model selection flags
+use_grid_pheromones: False
+discrete_pheromone: False # Does not matter much
+
+# Ensure pheromones have no effect
+pheromone_threshold: 10000.0 # Effectively disable stopping via pheromones
+max_pheromone_strength: 0.0   # No strength
