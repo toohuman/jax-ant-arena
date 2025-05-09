@@ -205,7 +205,12 @@ def update_step(state, key, t, params):
     # Calculate strength differently based on mode
     if use_grid_pheromones:
         # For grid deposition, strength depends on how long the ant has been in the state
-        individual_strength_for_deposition = calculate_individual_pheromone_strength(time_in_state)
+        individual_strength_for_deposition = calculate_individual_pheromone_strength(
+            time_in_state,
+            pheromone_max_timestep,
+            pheromone_elu_steepness,
+            pheromone_elu_transition_frac,
+            max_pheromone_strength)
         # Strength for direct detection is not needed in grid mode
         global_time_strength = 0.0 # Placeholder, not used
     else:
@@ -224,7 +229,7 @@ def update_step(state, key, t, params):
         strength_raw_t = A_t * elu_val_t + B_t
         global_time_strength = jnp.clip(strength_raw_t, 0.0, max_pheromone_strength)
         # Deposition strength is not needed in direct mode
-        individual_strength_for_deposition = jnp.zeros_like(time_in_state) # Placeholder, not used
+        individual_strength_for_deposition = jnp.zeros_like(time_in_state)
 
     # --- Pheromone Grid Update (Decay and Deposition)
     # Apply decay to the entire map
