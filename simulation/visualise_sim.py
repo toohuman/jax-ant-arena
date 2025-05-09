@@ -253,8 +253,12 @@ class AntSimulationVisualiser(QWidget):
                 for c in range(grid_res):
                     value = pheromone_map[r, c]
                     if value > 1e-4:
-                        screen_x = (self.center_x - self.arena_pixel_radius) + c * self.grid_cell_pixel_size
-                        screen_y = (self.center_y + self.arena_pixel_radius) - (r + 1) * self.grid_cell_pixel_size
+                        # Corrected Y coordinate for grid drawing (bottom-up for sim, top-down for screen)
+                        # r is sim_x_grid_index, c is sim_y_grid_index
+                        # screen_x should depend on r (sim_x_idx)
+                        # screen_y should depend on c (sim_y_idx), and be inverted for screen coordinates
+                        screen_x = (self.center_x - self.arena_pixel_radius) + r * self.grid_cell_pixel_size
+                        screen_y = (self.center_y - self.arena_pixel_radius) + (grid_res - 1 - c) * self.grid_cell_pixel_size
 
                         intensity_fraction = jnp.clip(value / max_val, 0.0, 1.0)
                         alpha = int(intensity_fraction * 255)
