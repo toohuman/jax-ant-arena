@@ -51,7 +51,7 @@ def calculate_individual_pheromone_strength(
     
     return individual_strength
 
-# Grid Helper Functions
+# --- Grid Helper Functions ---
 
 @partial(jax.jit, static_argnames=('size',))
 def create_circular_mask(size, radius_cells):
@@ -168,17 +168,11 @@ def update_step(state, key, t, params):
     use_grid_pheromones = params['pheromones']['use_grid_pheromones']
     dt = params['dt']
     k_push = params['k_push']
-    pheromone_radius = params['pheromones']['pheromone_radius']
-    discrete_pheromone = params['pheromones']['discrete_pheromone']
-    pheromone_threshold = params['pheromones']['pheromone_threshold']
-    pheromone_steepness = params['pheromones']['pheromone_steepness']
-    pheromone_decay_rate = params['pheromones']['pheromone_decay_rate']
-    pheromone_deposition_rate = params['pheromones']['pheromone_deposition_rate']
-    pheromone_max_timestep = params['pheromones']['pheromone_max_timestep']
-    pheromone_elu_steepness = params['pheromones']['pheromone_elu_steepness']
-    pheromone_elu_transition_frac = params['pheromones']['pheromone_elu_transition_frac']
-    pheromone_grid_radius_cells = params['pheromones']['grid_radius_cells']
+    
+    # General pheromone parameters 
     max_pheromone_strength = params['pheromones']['max_pheromone_strength']
+
+    # State parameters
     arrest2burst_grace_period = params['arrest2burst_grace_period']
     mean_rest_duration = params['mean_rest_duration']
     std_rest_duration = params['std_rest_duration']
@@ -210,20 +204,21 @@ def update_step(state, key, t, params):
     # Identify emitting ants (Resting OR Arrested)
     is_emitter = (behavioural_state == STATE_RESTING) | (behavioural_state == STATE_ARRESTED)
 
+    grid_resolution = params['pheromones']['grid_resolution']
+
     # Calculate strength differently based on mode
     if use_grid_pheromones:
         # For grid deposition, strength depends on how long the ant has been in the state
         individual_strength_for_deposition = calculate_individual_pheromone_strength(
             time_in_state,
-            pheromone_max_timestep,
+            params['pheromones']['pheromone_max_timestep'],
             max_pheromone_strength)
         # Strength for direct detection is not needed in grid mode
         global_time_strength = 0.0 # Placeholder, not used
     else:
-        # For direct detection, strength depends on global time 't' (original behaviour)
-        T_max_t = pheromone_max_timestep
-        k_t = pheromone_elu_steepness
-        x_offset_t = pheromone_elu_transition_frac
+        T_max_t = params['pheromones']['pheromone_max_timestep']
+        k_t = params['pheromones']['pheromone_elu_steepness']
+        x_offset_t = params['pheromones']['pheromone_elu_transition_frac']
         alpha_t = 1.0
         k_t = jnp.maximum(1e-6, k_t); x_offset_t = jnp.clip(x_offset_t, 1e-6, 1.0 - 1e-6)
         denom_A_t = k_t * (1.0 - x_offset_t) - (jnp.exp(-k_t * x_offset_t) - 1.0)
@@ -237,22 +232,21 @@ def update_step(state, key, t, params):
         # Deposition strength is not needed in direct mode
         individual_strength_for_deposition = jnp.zeros_like(time_in_state)
 
-    # --- Pheromone Grid Update (Decay and Deposition)
-    # Apply decay to the entire map
-    decayed_pheromone_map = pheromone_map * pheromone_decay_rate
+    # --- Pheromone Grid Update (Decay and Deposition for grid mode) ---
+    current_pheromone_map = pheromone_map # Start with the map from the previous state
+    grid_indices = None # Will be computed if use_grid_pheromones
 
-    # Calculate deposition amount for emitters
-    deposition_amount = individual_strength_for_deposition * is_emitter * pheromone_deposition_rate * dt
+    if use_grid_pheromones:
+        decay_rate = params['pheromones']['pheromone_decay_rate']
+        deposition_rate = params['pheromones']['pheromone_deposition_rate']
 
-    # Get grid indices for all ants (needed for deposition and maybe grid sampling)
-    grid_indices = pos_to_grid_idx(positions, arena_radius, grid_resolution) # Shape: (num_ants, 2)
-
-    # Add deposition to the grid using scatter add (.at[indices].add(values))
-    # Need to handle potential multiple ants depositing in the same cell correctly.
-    # .at provides atomic updates.
-    # Indices need to be tuples for .at: (rows, cols)
-    rows, cols = grid_indices[:, 0], grid_indices[:, 1]
-    updated_pheromone_map = decayed_pheromone_map.at[rows, cols].add(deposition_amount)
+        current_pheromone_map = current_pheromone_map * decay_rate
+        deposition_amount = individual_strength_for_deposition * is_emitter * deposition_rate * dt
+        grid_indices = pos_to_grid_idx(positions, arena_radius, grid_resolution) # Shape: (num_ants, 2)
+        rows, cols = grid_indices[:, 0], grid_indices[:, 1]
+        updated_pheromone_map = current_pheromone_map.at[rows, cols].add(deposition_amount)
+    else:
+        updated_pheromone_map = current_pheromone_map
 
     # --- Calculate Signal Strength (Conditional: Grid or Direct) ---
 
@@ -260,7 +254,7 @@ def update_step(state, key, t, params):
         # Sample the grid around each ant
         # grid_indices already calculated
         detected_pheromone = vmapped_sample_grid_radius(
-            grid_indices, pheromone_map_local, pheromone_grid_radius_cells, grid_resolution
+            grid_indices, pheromone_map_local, params['pheromones']['grid_radius_cells'], grid_resolution
         )
         # The summed value from the grid is the signal strength
         return detected_pheromone
@@ -270,6 +264,7 @@ def update_step(state, key, t, params):
         # --- This is the original direct detection logic, adapted slightly ---
         pos_local = state_local['position']
         b_state_local = state_local['behavioural_state']
+        pheromone_radius_direct = params['pheromones']['pheromone_radius']
 
         # Identify emitters
         is_emitter_local = (b_state_local == STATE_RESTING) | (b_state_local == STATE_ARRESTED)
@@ -281,7 +276,7 @@ def update_step(state, key, t, params):
         distances_pair = jnp.sqrt(distances_sq_pair)
 
         # Determine which ants (j) are within pheromone radius of each ant (i)
-        within_radius = (distances_pair < pheromone_radius)
+        within_radius = (distances_pair < pheromone_radius_direct)
 
         # Pheromone signal matrix: True if j is emitter and within radius of i
         pheromone_signal_matrix = jnp.where(within_radius, is_emitter_local[None, :], False)
@@ -293,14 +288,14 @@ def update_step(state, key, t, params):
         # Use the pre-calculated global_strength based on 't'
 
         # --- Calculate Total Signal Strength based on discrete_pheromone flag ---
-        if discrete_pheromone:
+        if params['pheromones']['discrete_pheromone']:
             # Discrete: Count emitting neighbours * the single global_strength value
             num_emitting_neighbours = jnp.sum(pheromone_signal_matrix, axis=1)
             strength = num_emitting_neighbours.astype(jnp.float32) * global_strength
         else:
             # Continuous: Sum of (emitter strength * distance falloff)
-            clipped_distances = jnp.minimum(distances_pair, pheromone_radius)
-            distance_scale = (pheromone_radius - clipped_distances) / (pheromone_radius + 1e-9)
+            clipped_distances = jnp.minimum(distances_pair, pheromone_radius_direct)
+            distance_scale = (pheromone_radius_direct - clipped_distances) / (pheromone_radius_direct + 1e-9)
             # Broadcast the single global_strength value
             emitter_strength_broadcast = jnp.full((1, num_ants), global_strength)
             # Calculate contribution of each neighbour j to ant i
@@ -323,6 +318,8 @@ def update_step(state, key, t, params):
     )
 
     # --- Calculate Probability of Stopping (Same logic as before) ---
+    pheromone_steepness = params['pheromones']['pheromone_steepness']
+    pheromone_threshold = params['pheromones']['pheromone_threshold']
     exponent = -pheromone_steepness * (signal_strength - pheromone_threshold)
     clipped_exponent = jnp.clip(exponent, -20.0, 20.0)
     prob_stop_pheromone = 1.0 / (1.0 + jnp.exp(clipped_exponent))

@@ -9,6 +9,7 @@ version = "0.1.0"
 visualise = "python simulation/visualise_sim.py"
 visualize = "python simulation/visualise_sim.py"
 animate = "python simulation/animate_sim.py"
+batch-runner = "python simulation/batch_run.py"
 
 setup-gpu = "pip install --upgrade 'jax[cuda12]' -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html"
 
