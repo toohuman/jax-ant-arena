@@ -7,10 +7,12 @@ pheromone_radius_multiplier: 2.0 # PHEROMONE_RADIUS = ANT_LENGTH * multiplier
 pheromone_threshold: 2.5
 pheromone_steepness: 4.0
 max_pheromone_strength: 0.9
-pheromone_max_timestep: 250
-pheromone_elu_transition_frac: 0.4
-pheromone_elu_steepness: 5.0
-
+pheromone_max_timestep: 10
 grid_resolution: 100 # Number of cells along each axis of the pheromone grid
 pheromone_decay_rate: 0.99 # Multiplicative decay factor per DT
 pheromone_deposition_rate: 1.0 # Scaling factor for deposition amount per DT
+
+
+# Ignore thee. Just to avoid refactoring.
+pheromone_elu_transition_frac: 0.4
+pheromone_elu_steepness: 5.0

@@ -30,35 +30,25 @@ def draw_durations(key, mean, std, num_samples, min_state_duration):
 def calculate_individual_pheromone_strength(
     time_in_state,
     pheromone_max_timestep,
-    pheromone_elu_steepness,
-    pheromone_elu_transition_frac,
     max_pheromone_strength
 ):
     """Calculates the pheromone strength/deposition rate for each ant based on its time_in_state."""
     T_max = pheromone_max_timestep
-    k = pheromone_elu_steepness
-    x_offset = pheromone_elu_transition_frac
-    alpha = 1.0 # Standard ELU alpha
 
-    # Ensure parameters are valid
-    k = jnp.maximum(1e-6, k)
-    x_offset = jnp.clip(x_offset, 1e-6, 1.0 - 1e-6)
+    # Ensure T_max is positive to avoid division by zero or negative rates
+    T_max_safe = jnp.maximum(1e-9, T_max)
 
-    # Calculate scaling constants A and B
-    denom_A = k * (1.0 - x_offset) - (jnp.exp(-k * x_offset) - 1.0)
-    A = max_pheromone_strength / (denom_A + 1e-9)
-    B = -A * (jnp.exp(-k * x_offset) - 1.0)
-
-    # Calculate the input to ELU based on individual time_in_state
-    t_clamped = jnp.clip(time_in_state, 0.0, T_max)
-    x_elu = k * (t_clamped / (T_max + 1e-9) - x_offset)
-
-    # Calculate the ELU-based strength for each ant
-    elu_val = jax.nn.elu(x_elu, alpha=alpha)
-    strength_raw = A * elu_val + B
-
-    # Clip final strength
+    # Calculate normalised time: ranges from 0 to 1 as time_in_state goes from 0 to T_max_safe.
+    # Time is clamped to T_max_safe, so normalised_time won't exceed 1.
+    normalised_time = jnp.clip(time_in_state, 0.0, T_max_safe) / T_max_safe
+    
+    # Linearly scale to max_pheromone_strength
+    strength_raw = normalised_time * max_pheromone_strength
+    
+    # Final clip to ensure it's within [0, max_pheromone_strength].
+    # This also handles cases where time_in_state might be negative, though typically it shouldn't be.
     individual_strength = jnp.clip(strength_raw, 0.0, max_pheromone_strength)
+    
     return individual_strength
 
 # Grid Helper Functions
@@ -208,8 +198,6 @@ def update_step(state, key, t, params):
         individual_strength_for_deposition = calculate_individual_pheromone_strength(
             time_in_state,
             pheromone_max_timestep,
-            pheromone_elu_steepness,
-            pheromone_elu_transition_frac,
             max_pheromone_strength)
         # Strength for direct detection is not needed in grid mode
         global_time_strength = 0.0 # Placeholder, not used
@@ -250,7 +238,7 @@ def update_step(state, key, t, params):
 
     # --- Calculate Signal Strength (Conditional: Grid or Direct) ---
 
-    def calculate_signal_strength_grid(state_local, pheromone_map_local):
+    def calculate_signal_strength_grid(pheromone_map_local):
         # Sample the grid around each ant
         # grid_indices already calculated
         detected_pheromone = vmapped_sample_grid_radius(
@@ -264,7 +252,6 @@ def update_step(state, key, t, params):
         # --- This is the original direct detection logic, adapted slightly ---
         pos_local = state_local['position']
         b_state_local = state_local['behavioural_state']
-        t_in_state_local = state_local['time_in_state'] # Needed for individual strength
 
         # Identify emitters
         is_emitter_local = (b_state_local == STATE_RESTING) | (b_state_local == STATE_ARRESTED)
@@ -308,7 +295,7 @@ def update_step(state, key, t, params):
     signal_strength = jax.lax.cond(
         use_grid_pheromones,
         # True branch: Grid calculation (ignores strength_op)
-        lambda state_op, map_op, strength_op: calculate_signal_strength_grid(state_op, map_op),
+        lambda state_op, map_op, strength_op: calculate_signal_strength_grid(map_op),
         # False branch: Direct calculation (ignores map_op internally)
         lambda state_op, map_op, strength_op: calculate_signal_strength_direct(state_op, strength_op),
         # Operands passed to both lambdas:

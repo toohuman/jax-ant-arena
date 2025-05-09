@@ -10,6 +10,7 @@ pheromone_max_timestep: 250
 pheromone_elu_transition_frac: 0.4
 pheromone_elu_steepness: 5.0
 
+
 # Ignore thee. Just to avoid refactoring.
 grid_resolution: 1
 pheromone_decay_rate: 1.0
