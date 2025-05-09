@@ -4,10 +4,10 @@ name: stigmergy
 use_grid_pheromones: True
 discrete_pheromone: False
 pheromone_radius_multiplier: 2.0 # PHEROMONE_RADIUS = ANT_LENGTH * multiplier
-pheromone_threshold: 2.5
+pheromone_threshold: 4.5
 pheromone_steepness: 4.0
 max_pheromone_strength: 0.9
-pheromone_max_timestep: 10
+pheromone_max_timestep: 15
 grid_resolution: 100 # Number of cells along each axis of the pheromone grid
 pheromone_decay_rate: 0.99 # Multiplicative decay factor per DT
 pheromone_deposition_rate: 1.0 # Scaling factor for deposition amount per DT

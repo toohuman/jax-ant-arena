@@ -52,6 +52,18 @@ def calculate_individual_pheromone_strength(
     return individual_strength
 
 # Grid Helper Functions
+
+@partial(jax.jit, static_argnames=('size',))
+def create_circular_mask(size, radius_cells):
+    """Creates a circular mask of a given size and radius."""
+    center = (size - 1) / 2.0
+    x = jnp.arange(size) - center
+    y = jnp.arange(size) - center
+    xx, yy = jnp.meshgrid(x, y)
+    distances_sq = xx**2 + yy**2
+    mask = distances_sq <= radius_cells**2
+    return mask.astype(jnp.float32)
+
 @partial(jax.jit, static_argnames=('grid_resolution'))
 def pos_to_grid_idx(position, arena_radius, grid_resolution):
     """Converts world coordinates (x, y) to grid indices (row, col)."""
@@ -65,7 +77,7 @@ def pos_to_grid_idx(position, arena_radius, grid_resolution):
 @partial(jax.jit, static_argnames=('radius_cells', 'grid_resolution'))
 def sample_grid_radius(ant_pos_idx, pheromone_map, radius_cells, grid_resolution):
     """Samples the pheromone map in a square region around the ant's grid index."""
-    # ant_pos_idx: (2,) array [row, col]
+    # ant_pos_idx: (2,) array [row, col] representing the ant's current cell
     # radius_cells: Static integer radius
     # grid_resolution: Static integer grid size
 
@@ -75,6 +87,9 @@ def sample_grid_radius(ant_pos_idx, pheromone_map, radius_cells, grid_resolution
 
     # The size of the square slice is fixed (static)
     slice_size = 2 * radius_cells + 1
+
+    # Create a circular mask for this slice size
+    circular_mask = create_circular_mask(slice_size, radius_cells)
 
     # Calculate the start indices in the *padded* map.
     # The original ant index (row, col) corresponds to (row + radius_cells, col + radius_cells)
@@ -91,7 +106,10 @@ def sample_grid_radius(ant_pos_idx, pheromone_map, radius_cells, grid_resolution
         (padded_start_row, padded_start_col), # Top-left corner of slice in padded map
         (slice_size, slice_size) # Static size
     )
-    total_pheromone = jnp.sum(sampled_region)
+    
+    # Apply the circular mask to the sampled region
+    masked_region = sampled_region * circular_mask
+    total_pheromone = jnp.sum(masked_region)
 
     return total_pheromone
 
