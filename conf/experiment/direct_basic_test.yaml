@@ -1,0 +1,22 @@
+defaults:
+  - /pheromones/direct # Select the direct pheromone model configuration
+
+
+seed: 12345
+num_ants: 50
+
+
+batch_run:
+  max_simulation_time: 10000   # Longer simulation time than default
+  data_collection_interval: 1.0 # Collect data less frequently
+  collect_pheromone_map: false   # Not applicable for direct mode
+
+# --- Override specific pheromone parameters for this direct mode run (if needed) ---
+# These will merge with/override those in conf/pheromones/direct.yaml
+pheromones:
+  pheromone_radius_multiplier: 1.5 # Ant interaction radius is 1.5x ant_length
+
+# --- You can add any notes or metadata for this experiment ---
+experiment_metadata:
+  description: "A long test run with the direct pheromone model, specific seed, and 50 ants."
+  goal: "Observe long-term stability or specific emergent patterns."

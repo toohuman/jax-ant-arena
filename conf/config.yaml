@@ -1,6 +1,7 @@
 defaults:
   - _self_
   - pheromones: direct
+  - optional experiment: null
 
 # --- Simulation Parameters ---
 num_ants: 64
@@ -28,7 +29,7 @@ min_state_duration: 0.2
 turn_rate_std: 1.4
 arrest2burst_grace_period: 2.0
 
-# --- Visualisation Parameters (moved from visualise_sim.py) ---
+# --- Visualisation Parameters ---
 visualisation:
   window_size: 800
   arena_padding: 20

@@ -74,8 +74,8 @@ def pos_to_grid_idx(position, arena_radius, grid_resolution):
     idx_clipped = jnp.clip(idx, 0, grid_resolution - 1)
     return idx_clipped.astype(jnp.int32)
 
-@partial(jax.jit, static_argnames=('radius_cells', 'grid_resolution'))
-def sample_grid_radius(ant_pos_idx, pheromone_map, radius_cells, grid_resolution):
+@partial(jax.jit, static_argnames=('radius_cells'))
+def sample_grid_radius(ant_pos_idx, pheromone_map, radius_cells):
     """Samples the pheromone map in a square region around the ant's grid index."""
     # ant_pos_idx: (2,) array [row, col] representing the ant's current cell
     # radius_cells: Static integer radius
@@ -114,7 +114,7 @@ def sample_grid_radius(ant_pos_idx, pheromone_map, radius_cells, grid_resolution
     return total_pheromone
 
 # mapped version for all ants
-vmapped_sample_grid_radius = jax.vmap(sample_grid_radius, in_axes=(0, None, None, None))
+vmapped_sample_grid_radius = jax.vmap(sample_grid_radius, in_axes=(0, None, None))
 
 def initialise_state(key, params):
     """Initialises the state of all ants including the pheromone map."""
@@ -234,7 +234,7 @@ def update_step(state, key, t, params):
 
     # --- Pheromone Grid Update (Decay and Deposition for grid mode) ---
     current_pheromone_map = pheromone_map # Start with the map from the previous state
-    grid_indices = None # Will be computed if use_grid_pheromones
+    grid_indices = pos_to_grid_idx(positions, arena_radius, grid_resolution) # Will be computed if use_grid_pheromones
 
     if use_grid_pheromones:
         decay_rate = params['pheromones']['pheromone_decay_rate']
@@ -254,7 +254,7 @@ def update_step(state, key, t, params):
         # Sample the grid around each ant
         # grid_indices already calculated
         detected_pheromone = vmapped_sample_grid_radius(
-            grid_indices, pheromone_map_local, params['pheromones']['grid_radius_cells'], grid_resolution
+            grid_indices, pheromone_map_local, params['pheromones']['grid_radius_cells']
         )
         # The summed value from the grid is the signal strength
         return detected_pheromone
