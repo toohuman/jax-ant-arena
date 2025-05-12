@@ -4,7 +4,7 @@ import time
 import jax
 import jax.numpy as jnp
 import jax.random as random
-from hydra import initialize, compose
+import hydra
 from omegaconf import DictConfig, OmegaConf
 from functools import partial
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QHBoxLayout, QLabel
@@ -346,7 +346,7 @@ class AntSimulationVisualiser(QWidget):
         painter.end()
 
 
-# @hydra.main(config_path="../conf", config_name="config", version_base=None)
+@hydra.main(config_path="../conf", config_name="config", version_base=None)
 def main(cfg: DictConfig):
     print("Configuration used:")
     print(OmegaConf.to_yaml(cfg))
@@ -390,20 +390,4 @@ def main(cfg: DictConfig):
     sys.exit(app.exec_())
 
 if __name__ == "__main__":
-    # Initialize Hydra and compose the configuration programmatically
-    with initialize(config_path="../conf", version_base=None):
-        cli_overrides = sys.argv[1:]
-        # Load configuration with minimal Hydra setup
-        # Combine your fixed overrides with those from the command line
-        all_overrides = [
-            "~experiment",          # Removes the 'experiment' config group
-            "hydra.run.dir=.",      # Sets hydra's working directory for outputs (if any were made)
-            "hydra.output_subdir=null" # Disables the .hydra subdirectory
-        ] + cli_overrides
-        cfg = compose(
-            config_name="config",
-            overrides=all_overrides,
-            return_hydra_config=False  # Don't include hydra config in the result
-        )
-        # Call your main function
-        main(cfg)
+    main()

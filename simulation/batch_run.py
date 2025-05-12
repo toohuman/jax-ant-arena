@@ -101,7 +101,7 @@ def run_simulation_headless(cfg: DictConfig):
 
 
     # --- JAX Simulation Setup ---
-    key = random.PRNGKey(cfg.seed) 
+    key = random.PRNGKey(cfg.experiment.seed) 
     key, subkey = random.split(key)
     
     sim_state = antsim.initialise_state(subkey, params)
@@ -111,8 +111,8 @@ def run_simulation_headless(cfg: DictConfig):
 
     sim_time = 0.0
     dt = params['dt']
-    max_sim_time = cfg.batch_run.max_simulation_time
-    data_collection_interval_time = cfg.batch_run.data_collection_interval
+    max_sim_time = cfg.experiment.max_simulation_time
+    data_collection_interval_time = cfg.experiment.data_collection_interval
     
     steps_per_collection = max(1, int(round(data_collection_interval_time / dt))) # round for better precision
     data_collection_interval_actual_time = steps_per_collection * dt
@@ -128,7 +128,7 @@ def run_simulation_headless(cfg: DictConfig):
         'angles': [],         
         'behavioural_states': [],
     }
-    if params['pheromones'].get('use_grid_pheromones', False) and cfg.batch_run.collect_pheromone_map:
+    if params['pheromones'].get('use_grid_pheromones', False) and cfg.experiment.collect_pheromone_map:
         collected_data_lists['pheromone_maps'] = []
 
     num_steps = int(round(max_sim_time / dt))
@@ -152,7 +152,7 @@ def run_simulation_headless(cfg: DictConfig):
             collected_data_lists['angles'].append(angles_host)
             collected_data_lists['behavioural_states'].append(behavioural_states_host)
             
-            if params['pheromones'].get('use_grid_pheromones', False) and cfg.batch_run.collect_pheromone_map:
+            if params['pheromones'].get('use_grid_pheromones', False) and cfg.experiment.collect_pheromone_map:
                 pheromone_map_host = jax.device_get(sim_state['pheromone_map'])
                 collected_data_lists['pheromone_maps'].append(pheromone_map_host)
             
@@ -207,7 +207,7 @@ def main(cfg: DictConfig):
 
 if __name__ == "__main__":
     # This allows running the script directly, e.g., for debugging
-    # `python simulation/batch_run.py` from project root
+    # `python simulation/py` from project root
     # Hydra configurations can be overridden from command line
-    # e.g. `python simulation/batch_run.py num_ants=10 seed=42 batch_run.max_simulation_time=100`
+    # e.g. `python simulation/py num_ants=10 seed=42 max_simulation_time=100`
     main()
