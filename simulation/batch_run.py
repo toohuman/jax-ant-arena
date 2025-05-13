@@ -28,6 +28,10 @@ def run_simulation_headless(cfg: DictConfig):
     """
     logger.info("Starting headless simulation run...")
     logger.info(f"CWD at start of run_simulation_headless: {os.getcwd()}")
+
+    # Log the JAX default backend
+    logger.info(f"JAX default backend: {jax.default_backend()}")
+
     # Convert OmegaConf to a regular dictionary for easier processing
     # resolve=True handles any interpolations in the config
     params = OmegaConf.to_container(cfg, resolve=True)
