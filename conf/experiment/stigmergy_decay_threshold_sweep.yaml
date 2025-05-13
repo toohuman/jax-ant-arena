@@ -1,49 +1,32 @@
 # @package _global_
 defaults:
-  - override /pheromones: grid # Select the grid pheromone model
+  - override /pheromones: grid
 
-# --- Fixed parameters for all runs in this sweep ---
-seed: 2025 # Use a fixed seed for all runs in this sweep for comparability across swept params
-num_ants: 64
-mean_burst_speed: 7.0 # Example of fixing another param for the whole sweep
-
-batch_run:
-  max_simulation_time: 2000
-  data_collection_interval: 10.0
+# --- Experiment Parameters ---
+experiment:
+  max_simulation_time: 10000
+  data_collection_interval: 1.0
   collect_pheromone_map: true # Let's collect maps for this grid sweep
 
-# --- Parameters to be swept ---
-# Define the values you want to sweep over.
-# These are defined here for clarity and can be referenced by the sweeper.
-# Note: These paths (e.g., pheromones.pheromone_decay_rate) must match
-# how these parameters are structured in your final composed config (usually from config.yaml or pheromones/*.yaml).
-
-# Option 1: Define sweep values directly here (less common for complex sweeps but simple)
-# For example, if these parameters are defined at the top level of grid.yaml or config.yaml:
-# swept_params_for_grid:
-#   decay_rates: [0.90, 0.95, 0.99]
-#   thresholds: [10.0, 15.0, 20.0]
-
-# --- Hydra sweeper configuration ---
+# --- Hydra Configuration ---
 hydra:
+  mode: MULTIRUN # Ensures this experiment runs as a sweep
   sweeper:
-    # Default sweeper is 'basic', which creates a Cartesian product of swept parameters.
-    # Other sweepers like 'ax' or 'optuna' can be installed for more advanced hyperparameter optimization.
     params:
-      # Syntax: path.to.parameter.in.composed.config: "comma-separated,values" or Python list-like string
-      # These parameters will be varied across multiple runs.
+      # Parameters defined here will be swept for this experiment.
+      # The '+' in front of 'seed' makes it a sweep dimension explicitly.
+      # The values will be available at the root of cfg (e.g., cfg.seed, cfg.num_ants).
+
+      +seed: 123,456,789 # For cfg.seed
+
+      num_ants: 64,128  # For cfg.num_ants
+      mean_arrest_duration: "3.0, 5.5, 10.0" # For cfg.mean_arrest_duration
       
       # Assuming 'pheromone_decay_rate' and 'pheromone_threshold' are under the 'pheromones' group
       # which is defined in conf/pheromones/grid.yaml
       pheromones.pheromone_decay_rate: 0.90,0.95,0.99
       pheromones.pheromone_threshold: 10.0,15.0,20.0
-      
-      # Example: If you also wanted to sweep a top-level parameter like 'mean_rest_duration'
-      # (assuming it's in config.yaml at the top level)
-      # mean_rest_duration: 2.0,3.0,4.0
-      
-      # Example: If you wanted to sweep grid_radius_cells (assuming it's in grid.yaml under 'pheromones')
-      # pheromones.grid_radius_cells: 2,3,4
+      pheromones.pheromone_deposition_rate: 1.0,2.0,3.0
 
 experiment_metadata:
   description: "Sweep over pheromone decay rate and threshold for the grid model."
