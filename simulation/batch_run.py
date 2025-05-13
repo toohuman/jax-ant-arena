@@ -149,7 +149,8 @@ def run_simulation_headless(cfg: DictConfig):
         # --- Data Collection ---
         if step_idx >= next_collection_step:
             # logger.info(f"Collecting data at step {step_idx}, sim_time: {current_sim_time_for_step:.2f}s")
-            tqdm.write(f"Collecting data at step {step_idx}, sim_time: {current_sim_time_for_step:.2f}s (Collecting...)")
+            if step_idx % 1000 == 0:
+                tqdm.write(f"Collecting data at step {step_idx}, sim_time: {current_sim_time_for_step:.2f}s (Collecting...)")
             collected_data_lists['time'].append(current_sim_time_for_step)
             
             positions_host = jax.device_get(sim_state['position'])
