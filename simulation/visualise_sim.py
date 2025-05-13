@@ -362,13 +362,13 @@ def main(cfg: DictConfig):
     params['ant_width'] = params['ant_length'] / 2.0
     params['ant_radius'] = params['ant_length'] / 2.0
     if params['pheromones']['grid_resolution'] > 0:
-         params['grid_cell_size'] = 2.0 * params['arena_radius'] / params['pheromones']['grid_resolution']
-         params['pheromones']['pheromone_radius'] = params['ant_length'] * params['pheromones']['pheromone_radius_multiplier']
-         params['pheromones']['grid_radius_cells'] = int(jnp.ceil(params['pheromones']['pheromone_radius'] / params['grid_cell_size']))
+        params['grid_cell_size'] = 2.0 * params['arena_radius'] / params['pheromones']['grid_resolution']
+        params['pheromones']['pheromone_radius'] = params['ant_length'] * params['pheromones']['pheromone_radius_multiplier']
+        params['pheromones']['grid_radius_cells'] = int(jnp.ceil(params['pheromones']['pheromone_radius'] / params['grid_cell_size']))
     else:
-         params['grid_cell_size'] = 0.0
-         params['pheromones']['grid_radius_cells'] = 0
-         params['pheromones']['pheromone_radius'] = params['ant_length'] * params['pheromones']['pheromone_radius_multiplier']
+        params['grid_cell_size'] = 0.0
+        params['pheromones']['grid_radius_cells'] = 0
+        params['pheromones']['pheromone_radius'] = params['ant_length'] * params['pheromones']['pheromone_radius_multiplier']
 
     params['wall_zone_width'] = params['ant_length'] * params['wall_zone_width_multiplier']
     

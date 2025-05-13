@@ -1,6 +1,6 @@
 # @package _global_
 defaults:
-  - override /pheromones: grid
+  - override /pheromones: stigmergy
 
 # --- Experiment Parameters ---
 experiment:
@@ -24,8 +24,9 @@ hydra:
       
       # Assuming 'pheromone_decay_rate' and 'pheromone_threshold' are under the 'pheromones' group
       # which is defined in conf/pheromones/grid.yaml
+      pheromones.pheromone_radius_multiplier: 1.5,2.5,3.5
       pheromones.pheromone_decay_rate: 0.90,0.95,0.99
-      pheromones.pheromone_threshold: 10.0,15.0,20.0
+      pheromones.pheromone_threshold: 3.0,6.0,9.0
       pheromones.pheromone_deposition_rate: 1.0,2.0,3.0
 
 experiment_metadata:
