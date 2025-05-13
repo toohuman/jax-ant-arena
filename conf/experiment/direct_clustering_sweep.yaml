@@ -1,0 +1,39 @@
+# @package _global_
+defaults:
+  # This experiment uses the 'direct' pheromone configuration.
+  # Assumes you have: conf/pheromones/direct.yaml
+  - override /pheromones: direct
+  # You could also override the default sweeper for this experiment if needed:
+  # - override hydra/sweeper: ax # if you wanted Ax for this one specifically
+
+# --- Experiment Parameters ---
+experiment:
+  max_simulation_time: 10000 # Specific for this experiment
+  data_collection_interval: 1.0 # Collect data less frequently
+  collect_pheromone_map: false   # Not applicable for direct mode
+
+
+# --- Hydra Configuration ---
+hydra:
+  mode: MULTIRUN # Ensures this experiment runs as a sweep
+  sweeper:
+    # If your main config.yaml (or its defaults) already specifies a sweeper
+    # (e.g., via 'defaults: - override hydra/sweeper: basic'),
+    # you only need to provide 'params' here to configure that sweeper.
+    # If not, you might need to specify the sweeper target:
+    # _target_: hydra.sweeper.basic.BasicSweeper
+    params:
+      # Parameters defined here will be swept for this experiment.
+      # The '+' in front of 'seed' makes it a sweep dimension explicitly.
+      # The values will be available at the root of cfg (e.g., cfg.seed, cfg.num_ants).
+
+      +seed: 123,456,789 # For cfg.seed
+
+      num_ants: 64,128  # For cfg.num_ants
+      mean_arrest_duration: "3.0, 5.5, 10.0" # For cfg.mean_arrest_duration
+
+      # Pheromone parameters are namespaced under 'pheromones' in your config
+      pheromone.pheromone_max_timestep: 1000
+      pheromones.pheromone_radius_multiplier: "1.5, 2.5, 4.0"
+      pheromones.pheromone_threshold: "1.0, 2.5, 4.0"
+      # ... other pheromone sweep parameters ...

@@ -1,15 +1,14 @@
 defaults:
-  - /pheromones/direct # Select the direct pheromone model configuration
+  - /pheromones: direct
 
+hydra_profile: batch
 
 seed: 12345
-num_ants: 50
+num_ants: 64
 
-
-batch_run:
-  max_simulation_time: 10000   # Longer simulation time than default
-  data_collection_interval: 1.0 # Collect data less frequently
-  collect_pheromone_map: false   # Not applicable for direct mode
+max_simulation_time: 10000   # Longer simulation time than default
+data_collection_interval: 1.0 # Collect data less frequently
+collect_pheromone_map: false   # Not applicable for direct mode
 
 # --- Override specific pheromone parameters for this direct mode run (if needed) ---
 # These will merge with/override those in conf/pheromones/direct.yaml

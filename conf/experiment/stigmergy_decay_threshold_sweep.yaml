@@ -1,3 +1,4 @@
+# @package _global_
 defaults:
   - override /pheromones: grid # Select the grid pheromone model
 

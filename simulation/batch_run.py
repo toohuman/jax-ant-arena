@@ -5,9 +5,11 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 import hydra
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from functools import partial
 import logging
+from tqdm import tqdm
 
 # --- Import from ant_simulation.py ---
 try:
@@ -25,6 +27,7 @@ def run_simulation_headless(cfg: DictConfig):
     Runs the ant simulation without visualisation and collects data.
     """
     logger.info("Starting headless simulation run...")
+    logger.info(f"CWD at start of run_simulation_headless: {os.getcwd()}")
     # Convert OmegaConf to a regular dictionary for easier processing
     # resolve=True handles any interpolations in the config
     params = OmegaConf.to_container(cfg, resolve=True)
@@ -101,7 +104,7 @@ def run_simulation_headless(cfg: DictConfig):
 
 
     # --- JAX Simulation Setup ---
-    key = random.PRNGKey(cfg.experiment.seed) 
+    key = random.PRNGKey(cfg.seed) 
     key, subkey = random.split(key)
     
     sim_state = antsim.initialise_state(subkey, params)
@@ -136,12 +139,13 @@ def run_simulation_headless(cfg: DictConfig):
     
     start_real_time = time.perf_counter()
 
-    for step_idx in range(num_steps + 1):
+    for step_idx in tqdm(range(num_steps + 1), desc="Simulation Progress", unit="step", total=num_steps + 1):
         current_sim_time_for_step = step_idx * dt
 
         # --- Data Collection ---
         if step_idx >= next_collection_step:
-            logger.info(f"Collecting data at step {step_idx}, sim_time: {current_sim_time_for_step:.2f}s")
+            # logger.info(f"Collecting data at step {step_idx}, sim_time: {current_sim_time_for_step:.2f}s")
+            tqdm.write(f"Collecting data at step {step_idx}, sim_time: {current_sim_time_for_step:.2f}s (Collecting...)")
             collected_data_lists['time'].append(current_sim_time_for_step)
             
             positions_host = jax.device_get(sim_state['position'])
@@ -165,13 +169,13 @@ def run_simulation_headless(cfg: DictConfig):
         key, subkey = random.split(key)
         sim_state = jitted_update_fn(sim_state, subkey, current_sim_time_for_step) # Pass current sim time for this step
         
-        if step_idx > 0 and step_idx % max(1, (num_steps // 20)) == 0 : # Log roughly 20 times
-             current_real_time = time.perf_counter()
-             elapsed_real_time = current_real_time - start_real_time
-             time_per_step = elapsed_real_time / step_idx
-             remaining_steps = num_steps - step_idx
-             eta_seconds = time_per_step * remaining_steps
-             logger.info(f"Progress: {step_idx / num_steps * 100:.1f}%, Sim Time: {current_sim_time_for_step:.2f}s, ETA: {eta_seconds:.1f}s")
+        # if step_idx > 0 and step_idx % max(1, (num_steps // 20)) == 0 : # Log roughly 20 times
+        #      current_real_time = time.perf_counter()
+        #      elapsed_real_time = current_real_time - start_real_time
+        #      time_per_step = elapsed_real_time / step_idx
+        #      remaining_steps = num_steps - step_idx
+        #      eta_seconds = time_per_step * remaining_steps
+        #      logger.info(f"Progress: {step_idx / num_steps * 100:.1f}%, Sim Time: {current_sim_time_for_step:.2f}s, ETA: {eta_seconds:.1f}s")
 
     end_real_time = time.perf_counter()
     total_real_time = end_real_time - start_real_time
@@ -182,7 +186,14 @@ def run_simulation_headless(cfg: DictConfig):
     # --- Save Collected Data ---
     output_filename_base = "simulation_data"
     # Hydra sets the working directory to the output folder for each run
-    save_path_base = os.getcwd() 
+    try:
+        hydra_cfg_obj = HydraConfig.get()
+        save_path_base = hydra_cfg_obj.runtime.output_dir
+        logger.info(f"Using Hydra output directory: {save_path_base}")
+    except ValueError: # HydraConfig is not initialized (e.g. script run outside Hydra context)
+        logger.warning("HydraConfig not available. Defaulting to current working directory for saving.")
+        save_path_base = os.getcwd()
+
     
     data_to_save_numpy = {}
     for key_data, val_list in collected_data_lists.items():
@@ -201,13 +212,18 @@ def run_simulation_headless(cfg: DictConfig):
 
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
 def main(cfg: DictConfig):
-    # Actual run is handled by the decorated function if no sweep
-    # For sweeps, Hydra calls this multiple times with varied cfg
+    print("--- Composed Configuration for this job ---")
+    print(OmegaConf.to_yaml(cfg)) # This will show you the exact cfg
+    print("----------------------------------------")
+
+    # Now try to access cfg.seed
+    if cfg.seed is None:
+        print("ERROR: cfg.seed is None! Sweep override did not happen.")
+        # You might want to raise an error or exit here if seed is crucial
+        # For JAX PRNGKey, it MUST be an integer.
+        raise ValueError("cfg.seed cannot be None for JAX PRNGKey")
+
     run_simulation_headless(cfg)
 
 if __name__ == "__main__":
-    # This allows running the script directly, e.g., for debugging
-    # `python simulation/py` from project root
-    # Hydra configurations can be overridden from command line
-    # e.g. `python simulation/py num_ants=10 seed=42 max_simulation_time=100`
     main()

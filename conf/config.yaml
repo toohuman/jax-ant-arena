@@ -1,9 +1,11 @@
 defaults:
-  - _self_
+  - hydra: interactive
   - pheromones: direct
-  - optional experiment: null
+  - _self_
+
 
 # --- Simulation Parameters ---
+seed: null
 num_ants: 64
 arena_radius: 50.0  # mm
 ant_length: 2.5     # mm
@@ -39,11 +41,3 @@ visualisation:
   grid_max_pheromone_for_colour: 5.0
   visual_direct_pheromone_alpha: 20
   max_simulation_time: 1000
-
-# --- Hydra settings ---
-hydra:
-  run:
-    dir: outputs/${pheromones.name}/${now:%Y-%m-%d_%H-%M-%S}
-  sweep:
-    dir: multirun/${pheromones.name}/${now:%Y-%m-%d_%H-%M-%S}
-    subdir: ${hydra.job.num}

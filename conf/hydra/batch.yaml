@@ -1,0 +1,11 @@
+# These settings will be placed under the 'hydra' key in the final config
+run:
+  # Standard Hydra output directory structure
+  dir: outputs/${pheromones.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+output_subdir: .hydra # Standard .hydra folder
+job_logging:
+  root:
+    level: INFO # Standard logging for batch jobs
+hydra_logging:
+  root:
+    level: INFO
