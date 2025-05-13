@@ -33,7 +33,7 @@ hydra:
       mean_arrest_duration: "3.0, 5.5, 10.0" # For cfg.mean_arrest_duration
 
       # Pheromone parameters are namespaced under 'pheromones' in your config
-      pheromone.pheromone_max_timestep: 1000
+      pheromones.pheromone_max_timestep: 1000
       pheromones.pheromone_radius_multiplier: "1.5, 2.5, 4.0"
       pheromones.pheromone_threshold: "1.0, 2.5, 4.0"
       # ... other pheromone sweep parameters ...
