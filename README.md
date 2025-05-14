@@ -29,18 +29,11 @@ Alternatively, you may use `conda` or `poetry` by installing the dependencies li
 pixi run visualise
 ```
 
-## Project Structure
-- `simulation/visualise_sim.py` — Main simulation and visualisation script
-- `simulation/ant_simulation.py` — Core ant simulation logic and parameters
-- `pixi.toml` — Project environment and dependency configuration
+By default, this will run the direct pheromone model (ants detect neighbours within a given radius). You may also experiment with the stigmergy model by running:
+```sh
+pixi run visualise pheromones=stigmergy
+```
 
-## Customisation
-
-Simulation and pheromone parameters can be adjusted to explore different behaviors. Key parameters in `simulation/ant_simulation.py` include:
-- `PHEROMONE_MAX_TIMESTEP`: Maximum time for pheromone effect
-- `PHEROMONE_ELU_TRANSITION_FRAC`: Fraction of max time where pheromone growth becomes linear
-- `PHEROMONE_ELU_STEEPNESS`: Controls the initial exponential rise of pheromone effect
-- `MAX_PHEROMONE_STRENGTH`: Maximum contribution of a single ant
 
 Feel free to experiment with these and other parameters to investigate different collective behaviors.
 
