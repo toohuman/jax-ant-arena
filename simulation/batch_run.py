@@ -40,8 +40,6 @@ def run_simulation_headless(cfg: DictConfig):
 
     # --- Prepare Derived Parameters ---
     params['ant_width'] = params['ant_length'] / 2.0
-    # 'ant_radius' often refers to half of ant_length for collision/interaction distance
-    params['ant_radius'] = params['ant_length'] / 2.0 
     params['wall_zone_width'] = params['ant_length'] * params['wall_zone_width_multiplier']
 
     # --- Pheromone-specific derived parameters ---

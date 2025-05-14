@@ -360,7 +360,6 @@ def main(cfg: DictConfig):
     # It's often cleaner to do this here than relying on Hydra interpolations
     # for things involving complex logic or multiple base parameters.
     params['ant_width'] = params['ant_length'] / 2.0
-    params['ant_radius'] = params['ant_length'] / 2.0
     if params['pheromones']['grid_resolution'] > 0:
         params['grid_cell_size'] = 2.0 * params['arena_radius'] / params['pheromones']['grid_resolution']
         params['pheromones']['pheromone_radius'] = params['ant_length'] * params['pheromones']['pheromone_radius_multiplier']

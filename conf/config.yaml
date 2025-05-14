@@ -1,6 +1,6 @@
 defaults:
   - hydra: interactive
-  - pheromones: direct
+  - pheromones: stigmergy
   - _self_
 
 
@@ -10,7 +10,6 @@ num_ants: 64
 arena_radius: 50.0  # mm
 ant_length: 2.5     # mm
 ant_width: 1.25     # mm
-ant_radius: 1.25    # mm
 k_push: 0.1
 dt: 0.1
 
