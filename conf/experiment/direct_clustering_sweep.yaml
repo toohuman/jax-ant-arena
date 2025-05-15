@@ -1,5 +1,6 @@
 # @package _global_
 defaults:
+  - override /hydra: batch
   - override /pheromones: direct
 
 # --- Experiment Parameters ---
@@ -7,6 +8,10 @@ experiment:
   max_simulation_time: 10000 # Specific for this experiment
   data_collection_interval: 1.0 # Collect data less frequently
   collect_pheromone_map: false   # Not applicable for direct mode
+  
+  meta:
+    description: "Sweep over pheromone thresholds and radii for the direct model."
+    goal: "Investigate sensitivity of clustering to detection radius and threshold."
 
 
 # --- Hydra Configuration ---
@@ -27,7 +32,3 @@ hydra:
       pheromones.pheromone_max_timestep: 3000
       pheromones.pheromone_radius_multiplier: "1.5, 2.5, 4.0"
       pheromones.pheromone_threshold: "1.0, 2.5, 3.0, 4.0"
-  
-experiment_metadata:
-  description: "Sweep over pheromone thresholds and radii for the direct model."
-  goal: "Investigate sensitivity of clustering to detection radius and threshold."

@@ -1,11 +1,13 @@
 # These settings will be placed under the 'hydra' key in the final config
 run:
-  # Standard Hydra output directory structure
-  dir: outputs/${pheromones.name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
-output_subdir: .hydra # Standard .hydra folder
+  dir: output/${pheromones.name}/${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M-%S}
+sweep:
+  dir: multirun/${pheromones.name}/${now:%Y-%m-%d_%H-%M-%S}_${hydra.job.name} 
+  # subdir: ${hydra.job.num}_${hydra.job.override_dirname}
+
+output_subdir: .hydra # Standard for batch runs
+
 job_logging:
   root:
-    level: INFO # Standard logging for batch jobs
-hydra_logging:
-  root:
-    level: INFO
+    level: INFO # Ensure root logger processes INFO
+    handlers: [console, file] # Ensure both handlers are active on root

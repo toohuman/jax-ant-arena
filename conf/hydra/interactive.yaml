@@ -1,10 +1,7 @@
 run:
-  dir: .
-output_subdir: null # No .hydra folder
+  dir: . # Outputs in the current directory
+output_subdir: null # No .hydra folder for cleaner interactive runs
 
 job_logging:
   root:
-    level: WARNING # Quieter logging for interactive sessions
-hydra_logging:
-  root:
-    level: WARNING
+    level: WARNING # Quieter for interactive use
