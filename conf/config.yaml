@@ -39,4 +39,4 @@ visualisation:
   speed_levels: [1, 4, 8, 16, 64, 128] # Use list syntax in YAML
   grid_max_pheromone_for_colour: 5.0
   visual_direct_pheromone_alpha: 20
-  max_simulation_time: 1000
+  max_simulation_time: 3000

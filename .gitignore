@@ -3,6 +3,7 @@ data
 experimental
 outputs
 multirun
+processed_run_data
 visualisation
 *.log
 
@@ -14,6 +15,9 @@ __pycache__
 .pixi
 pixi.lock
 *.egg-info
+
+# Code Assistants
+CLAUDE.md
 
 # MacOS
 .DS_Store
