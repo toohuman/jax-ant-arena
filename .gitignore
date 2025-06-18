@@ -4,6 +4,7 @@ experimental
 outputs
 multirun
 visualisation
+real2sim_data
 
 
 # Python files and directories
