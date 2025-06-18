@@ -116,6 +116,13 @@ Start (Frame 0):
   Max distance from center: 392.4
 ```
 
+### Example Visualization
+Below is an example of the generated visualization showing ants (red circles) with direction indicators (red arrows) within the arena boundary:
+
+![Ant Visualization Example](visualize/snapshot_01_start.png)
+
+*Example snapshot showing 48 ants positioned within the circular arena (radius 400). Each red circle represents an ant, and the red arrows indicate the calculated movement direction based on moving average.*
+
 ## Configuration Options
 
 ### Modifying input data file
@@ -177,4 +184,3 @@ Edit `visualise_converted.py`:
     'transformation_params': {'x_center': 636.5, 'y_center': 654.0, ...}
 }
 ```
-
