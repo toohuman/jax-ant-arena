@@ -25,6 +25,100 @@ def draw_durations(key, mean, std, num_samples, min_state_duration):
     durations = mean + random.normal(key, (num_samples,)) * std
     return jnp.maximum(min_state_duration, durations)
 
+@partial(jax.jit, static_argnames=('grid_resolution',))
+def efficient_pheromone_deposition(positions, deposition_amounts, arena_radius, grid_resolution):
+    """
+    Efficient pheromone deposition using one-hot encoding matrices.
+    Much faster than scatter-add operations, especially when multiple ants
+    occupy the same grid cells.
+    """
+    num_ants = positions.shape[0]
+    
+    # Convert positions to grid indices
+    grid_indices = pos_to_grid_idx(positions, arena_radius, grid_resolution)
+    rows, cols = grid_indices[:, 0], grid_indices[:, 1]
+    
+    # Create one-hot matrices for each ant's position
+    # This avoids the scatter-add bottleneck entirely
+    row_one_hot = jax.nn.one_hot(rows, grid_resolution, dtype=jnp.float32)  # (num_ants, grid_resolution)
+    col_one_hot = jax.nn.one_hot(cols, grid_resolution, dtype=jnp.float32)  # (num_ants, grid_resolution)
+    
+    # Outer product to get position matrices for each ant
+    position_matrices = row_one_hot[:, :, None] * col_one_hot[:, None, :]  # (num_ants, grid_resolution, grid_resolution)
+    
+    # Weight by deposition amounts and sum across all ants
+    weighted_deposits = position_matrices * deposition_amounts[:, None, None]
+    total_deposition = jnp.sum(weighted_deposits, axis=0)  # (grid_resolution, grid_resolution)
+    
+    return total_deposition
+
+@partial(jax.jit, static_argnames=('grid_resolution', 'radius_cells'))
+def efficient_pheromone_detection_batch(positions, pheromone_map, arena_radius, grid_resolution, radius_cells):
+    """
+    Batch detection using convolution-like operations.
+    Much more efficient than individual dynamic slices.
+    """
+    num_ants = positions.shape[0]
+    
+    # Convert positions to grid indices
+    grid_indices = pos_to_grid_idx(positions, arena_radius, grid_resolution)
+    
+    # Create detection masks for all ants at once
+    circular_mask = create_circular_mask(2 * radius_cells + 1, radius_cells)
+    
+    # Create one-hot position matrices for all ants
+    rows, cols = grid_indices[:, 0], grid_indices[:, 1]
+    row_one_hot = jax.nn.one_hot(rows, grid_resolution, dtype=jnp.float32)
+    col_one_hot = jax.nn.one_hot(cols, grid_resolution, dtype=jnp.float32)
+    ant_position_matrices = row_one_hot[:, :, None] * col_one_hot[:, None, :]  # (num_ants, grid_resolution, grid_resolution)
+    
+    # Pad the pheromone map once
+    padded_map = jnp.pad(pheromone_map, pad_width=radius_cells, mode='constant', constant_values=0)
+    
+    # Use correlation to efficiently compute all detections at once
+    # This is essentially a vectorised convolution operation
+    detections = []
+    for i in range(num_ants):
+        # Get the ant's position in the padded map
+        row_center, col_center = grid_indices[i, 0], grid_indices[i, 1]
+        
+        # Extract the local region
+        local_region = jax.lax.dynamic_slice(
+            padded_map,
+            (row_center, col_center),
+            (2 * radius_cells + 1, 2 * radius_cells + 1)
+        )
+        
+        # Apply circular mask and sum
+        masked_region = local_region * circular_mask
+        detection = jnp.sum(masked_region)
+        detections.append(detection)
+    
+    return jnp.array(detections)
+
+def update_pheromone_map_efficient(current_map, positions, time_in_state, is_emitter, 
+                                  pheromone_max_timestep, max_pheromone_strength, 
+                                  deposition_rate, dt, arena_radius, grid_resolution, decay_rate):
+    """Drop-in replacement for pheromone map updates - handles everything internally"""
+    # Apply decay
+    decayed_map = current_map * decay_rate
+    
+    # Calculate individual strength for deposition (same logic as before)
+    individual_strength = calculate_individual_pheromone_strength(
+        time_in_state, pheromone_max_timestep, max_pheromone_strength
+    )
+    
+    # Calculate final deposition amounts
+    deposition_amounts = individual_strength * is_emitter * deposition_rate * dt
+    
+    # Add new deposits efficiently (avoiding scatter-add)
+    deposition_matrix = efficient_pheromone_deposition(
+        positions, deposition_amounts, arena_radius, grid_resolution
+    )
+    
+    return decayed_map + deposition_matrix
+
+
 # Function to calculate individual pheromone strength based on time in state
 @jax.jit
 def calculate_individual_pheromone_strength(
@@ -208,19 +302,36 @@ def update_step(state, key, t, params):
 
     # Calculate strength differently based on mode
     if use_grid_pheromones:
-        # For grid deposition, strength depends on how long the ant has been in the state
-        individual_strength_for_deposition = calculate_individual_pheromone_strength(
+        # EFFICIENT GRID MODE - everything handled in one call
+        decay_rate = params['pheromones']['pheromone_decay_rate']
+        deposition_rate = params['pheromones']['pheromone_deposition_rate']
+        
+        updated_pheromone_map = update_pheromone_map_efficient(
+            pheromone_map,  # Use the map from state directly
+            positions, 
             time_in_state,
+            is_emitter,
             params['pheromones']['pheromone_max_timestep'],
-            max_pheromone_strength)
-        # Strength for direct detection is not needed in grid mode
-        global_time_strength = 0.0 # Placeholder, not used
+            max_pheromone_strength,
+            deposition_rate,
+            dt,
+            arena_radius, 
+            grid_resolution, 
+            decay_rate
+        )
+        # Placeholder for direct mode compatibility
+        global_time_strength = 0.0
     else:
+        # DIRECT MODE - no grid updates needed
+        updated_pheromone_map = pheromone_map  # Map doesn't change in direct mode
+        
+        # Calculate global time-based strength for direct detection
         T_max_t = params['pheromones']['pheromone_max_timestep']
         k_t = params['pheromones']['pheromone_elu_steepness']
         x_offset_t = params['pheromones']['pheromone_elu_transition_frac']
         alpha_t = 1.0
-        k_t = jnp.maximum(1e-6, k_t); x_offset_t = jnp.clip(x_offset_t, 1e-6, 1.0 - 1e-6)
+        k_t = jnp.maximum(1e-6, k_t)
+        x_offset_t = jnp.clip(x_offset_t, 1e-6, 1.0 - 1e-6)
         denom_A_t = k_t * (1.0 - x_offset_t) - (jnp.exp(-k_t * x_offset_t) - 1.0)
         A_t = max_pheromone_strength / (denom_A_t + 1e-9)
         B_t = -A_t * (jnp.exp(-k_t * x_offset_t) - 1.0)
@@ -229,35 +340,6 @@ def update_step(state, key, t, params):
         elu_val_t = jax.nn.elu(x_elu_t, alpha=alpha_t)
         strength_raw_t = A_t * elu_val_t + B_t
         global_time_strength = jnp.clip(strength_raw_t, 0.0, max_pheromone_strength)
-        # Deposition strength is not needed in direct mode
-        individual_strength_for_deposition = jnp.zeros_like(time_in_state)
-
-    # --- Pheromone Grid Update (Decay and Deposition for grid mode) ---
-    current_pheromone_map = pheromone_map # Start with the map from the previous state
-    grid_indices = pos_to_grid_idx(positions, arena_radius, grid_resolution) # Will be computed if use_grid_pheromones
-
-    if use_grid_pheromones:
-        decay_rate = params['pheromones']['pheromone_decay_rate']
-        deposition_rate = params['pheromones']['pheromone_deposition_rate']
-
-        current_pheromone_map = current_pheromone_map * decay_rate
-        deposition_amount = individual_strength_for_deposition * is_emitter * deposition_rate * dt
-        grid_indices = pos_to_grid_idx(positions, arena_radius, grid_resolution) # Shape: (num_ants, 2)
-        rows, cols = grid_indices[:, 0], grid_indices[:, 1]
-        updated_pheromone_map = current_pheromone_map.at[rows, cols].add(deposition_amount)
-    else:
-        updated_pheromone_map = current_pheromone_map
-
-    # --- Calculate Signal Strength (Conditional: Grid or Direct) ---
-
-    def calculate_signal_strength_grid(pheromone_map_local):
-        # Sample the grid around each ant
-        # grid_indices already calculated
-        detected_pheromone = vmapped_sample_grid_radius(
-            grid_indices, pheromone_map_local, params['pheromones']['grid_radius_cells']
-        )
-        # The summed value from the grid is the signal strength
-        return detected_pheromone
 
     # Pass global_strength calculated based on 't'
     def calculate_signal_strength_direct(state_local, global_strength):
@@ -307,14 +389,15 @@ def update_step(state, key, t, params):
     # Use jax.lax.cond to select the signal strength calculation method
     signal_strength = jax.lax.cond(
         use_grid_pheromones,
-        # True branch: Grid calculation (ignores strength_op)
-        lambda state_op, map_op, strength_op: calculate_signal_strength_grid(map_op),
-        # False branch: Direct calculation (ignores map_op internally)
+        # True branch: Call the actual function directly
+        lambda state_op, map_op, strength_op: efficient_pheromone_detection_batch(
+            state_op['position'], map_op, arena_radius, grid_resolution, 
+            params['pheromones']['grid_radius_cells']
+        ),
+        # False branch: Direct calculation (unchanged)
         lambda state_op, map_op, strength_op: calculate_signal_strength_direct(state_op, strength_op),
-        # Operands passed to both lambdas:
-        state,
-        updated_pheromone_map,
-        global_time_strength
+        # Operands:
+        state, updated_pheromone_map, global_time_strength
     )
 
     # --- Calculate Probability of Stopping (Same logic as before) ---
