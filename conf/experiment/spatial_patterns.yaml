@@ -1,0 +1,31 @@
+# @package _global_
+defaults:
+  - override /hydra: batch
+  - override /pheromones: stigmergy
+
+experiment_name: spatial_patterns
+
+experiment:
+  max_simulation_time: 10000
+  data_collection_interval: 100.0
+  collect_pheromone_map: true
+  
+  meta:
+    description: "Characterise emergent spatial organisation"
+    goal: "Identify pattern formation mechanisms"
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      +seed: range(1,11)
+      
+      # Vary spatial interaction range
+      pheromones.pheromone_radius_multiplier: 1.0,1.5,2.0,2.5,3.0,4.0,5.0
+      
+      # Vary temporal persistence
+      pheromones.pheromone_decay_rate: 0.85,0.90,0.95,0.99,0.995
+      
+      # Fixed parameters
+      num_ants: 256
+      pheromones.pheromone_threshold: 4.5

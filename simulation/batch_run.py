@@ -4,6 +4,7 @@ import time # For performance timing
 import jax
 import jax.numpy as jnp
 import jax.random as random
+import json
 import hydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
@@ -165,6 +166,11 @@ def run_simulation_headless(cfg: DictConfig):
             
             next_collection_step += steps_per_collection
 
+            if step_idx % 1000 == 0:  # Less frequent
+                n_moving = jnp.sum(behavioural_states_host == antsim.STATE_MOVING_BURST)
+                n_arrested = jnp.sum(behavioural_states_host == antsim.STATE_ARRESTED)
+                tqdm.write(f"Step {step_idx}: Moving={n_moving}, Arrested={n_arrested}")
+
         if step_idx == num_steps: 
             break
 
@@ -197,7 +203,28 @@ def run_simulation_headless(cfg: DictConfig):
         logger.warning("HydraConfig not available. Defaulting to current working directory for saving.")
         save_path_base = os.getcwd()
 
-    
+    metadata = {
+        'params': OmegaConf.to_container(cfg, resolve=True),
+        'simulation_info': {
+            'total_steps': num_steps,
+            'dt': dt,
+            'collection_interval_steps': steps_per_collection,
+            'collection_interval_time': data_collection_interval_actual_time,
+            'final_sim_time': final_sim_time,
+            'runtime_seconds': total_real_time,
+        },
+        'data_shapes': {k: v.shape for k, v in data_to_save_numpy.items()},
+        'hydra_info': {
+            'job_num': hydra_cfg_obj.job.num if hasattr(hydra_cfg_obj.job, 'num') else None,
+            'override_dirname': hydra_cfg_obj.job.override_dirname,
+        }
+    }
+
+    # Save metadata separately for easy loading
+    metadata_file = os.path.join(save_path_base, "metadata.json")
+    with open(metadata_file, 'w') as f:
+        json.dump(metadata, f, indent=2)
+
     data_to_save_numpy = {}
     for key_data, val_list in collected_data_lists.items():
         if val_list: # Ensure list is not empty

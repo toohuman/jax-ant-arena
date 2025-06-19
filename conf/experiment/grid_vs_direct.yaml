@@ -1,0 +1,34 @@
+# @package _global_
+defaults:
+  - override /hydra: batch
+  - override /pheromones: stigmergy
+
+experiment_name: grid_vs_direct
+
+experiment:
+  max_simulation_time: 5000
+  data_collection_interval: 10.0
+  collect_pheromone_map: true
+  measure_computation_time: true
+  
+  meta:
+    description: "Compare grid-based vs direct pheromone models"
+    goal: "Quantify trade-offs between approaches"
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      +seed: range(1,6)
+      
+      # Key comparison
+      pheromones.use_grid_pheromones: true,false
+      
+      # Grid resolution study (only applies when use_grid=true)
+      pheromones.grid_resolution: 50,100,200
+      
+      # System sizes
+      num_ants: 64,128,256,512
+      
+      # Detection radius comparison
+      pheromones.pheromone_radius_multiplier: 1.5,2.5,3.5

@@ -1,8 +1,8 @@
 # These settings will be placed under the 'hydra' key in the final config
 run:
-  dir: output/${pheromones.name}/${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M-%S}
+  dir: output/${pheromones.name}/${experiment_name}/${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M-%S}
 sweep:
-  dir: multirun/${pheromones.name}/${now:%Y-%m-%d_%H-%M-%S} #_${hydra.job.name} 
+  dir: multirun/${pheromones.name}/${experiment_name}/${now:%Y-%m-%d_%H-%M-%S} #_${hydra.job.name} 
   # subdir: ${hydra.job.num}_${hydra.job.override_dirname}
 
 output_subdir: .hydra # Standard for batch runs

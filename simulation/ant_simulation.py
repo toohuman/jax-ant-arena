@@ -26,7 +26,7 @@ def draw_durations(key, mean, std, num_samples, min_state_duration):
     return jnp.maximum(min_state_duration, durations)
 
 @partial(jax.jit, static_argnames=('grid_resolution',))
-def efficient_pheromone_deposition(positions, deposition_amounts, arena_radius, grid_resolution):
+def pheromone_deposition(positions, deposition_amounts, arena_radius, grid_resolution):
     """
     Efficient pheromone deposition using one-hot encoding matrices.
     Much faster than scatter-add operations, especially when multiple ants
@@ -53,7 +53,7 @@ def efficient_pheromone_deposition(positions, deposition_amounts, arena_radius, 
     return total_deposition
 
 @partial(jax.jit, static_argnames=('grid_resolution', 'radius_cells'))
-def efficient_pheromone_detection_batch(positions, pheromone_map, arena_radius, grid_resolution, radius_cells):
+def pheromone_detection_batch(positions, pheromone_map, arena_radius, grid_resolution, radius_cells):
     """
     Batch detection using convolution-like operations.
     Much more efficient than individual dynamic slices.
@@ -96,7 +96,7 @@ def efficient_pheromone_detection_batch(positions, pheromone_map, arena_radius, 
     
     return jnp.array(detections)
 
-def update_pheromone_map_efficient(current_map, positions, time_in_state, is_emitter, 
+def update_pheromone_map(current_map, positions, time_in_state, is_emitter, 
                                   pheromone_max_timestep, max_pheromone_strength, 
                                   deposition_rate, dt, arena_radius, grid_resolution, decay_rate):
     """Drop-in replacement for pheromone map updates - handles everything internally"""
@@ -112,7 +112,7 @@ def update_pheromone_map_efficient(current_map, positions, time_in_state, is_emi
     deposition_amounts = individual_strength * is_emitter * deposition_rate * dt
     
     # Add new deposits efficiently (avoiding scatter-add)
-    deposition_matrix = efficient_pheromone_deposition(
+    deposition_matrix = pheromone_deposition(
         positions, deposition_amounts, arena_radius, grid_resolution
     )
     
@@ -167,48 +167,6 @@ def pos_to_grid_idx(position, arena_radius, grid_resolution):
     # Clip to ensure indices are within [0, grid_resolution - 1]
     idx_clipped = jnp.clip(idx, 0, grid_resolution - 1)
     return idx_clipped.astype(jnp.int32)
-
-@partial(jax.jit, static_argnames=('radius_cells'))
-def sample_grid_radius(ant_pos_idx, pheromone_map, radius_cells):
-    """Samples the pheromone map in a square region around the ant's grid index."""
-    # ant_pos_idx: (2,) array [row, col] representing the ant's current cell
-    # radius_cells: Static integer radius
-    # grid_resolution: Static integer grid size
-
-    # Pad the map with zeros to handle boundary cases easily.
-    # Padding width is 'radius_cells' on all sides.
-    padded_map = jnp.pad(pheromone_map, pad_width=radius_cells, mode='constant', constant_values=0)
-
-    # The size of the square slice is fixed (static)
-    slice_size = 2 * radius_cells + 1
-
-    # Create a circular mask for this slice size
-    circular_mask = create_circular_mask(slice_size, radius_cells)
-
-    # Calculate the start indices in the *padded* map.
-    # The original ant index (row, col) corresponds to (row + radius_cells, col + radius_cells)
-    # in the padded map. We want to start slicing 'radius_cells' before this center.
-    row_center, col_center = ant_pos_idx[0], ant_pos_idx[1]
-
-    padded_start_row = row_center # Indexing starts from 0, so row_center is row_center cells from the top padding
-    padded_start_col = col_center # Similarly for columns
-
-    # Perform the dynamic slice on the padded map with a *static* slice size
-    # start_indices are dynamic, but slice_sizes must be static for JIT.
-    sampled_region = jax.lax.dynamic_slice(
-        padded_map,
-        (padded_start_row, padded_start_col), # Top-left corner of slice in padded map
-        (slice_size, slice_size) # Static size
-    )
-    
-    # Apply the circular mask to the sampled region
-    masked_region = sampled_region * circular_mask
-    total_pheromone = jnp.sum(masked_region)
-
-    return total_pheromone
-
-# mapped version for all ants
-vmapped_sample_grid_radius = jax.vmap(sample_grid_radius, in_axes=(0, None, None))
 
 def initialise_state(key, params):
     """Initialises the state of all ants including the pheromone map."""
@@ -306,7 +264,7 @@ def update_step(state, key, t, params):
         decay_rate = params['pheromones']['pheromone_decay_rate']
         deposition_rate = params['pheromones']['pheromone_deposition_rate']
         
-        updated_pheromone_map = update_pheromone_map_efficient(
+        updated_pheromone_map = update_pheromone_map(
             pheromone_map,  # Use the map from state directly
             positions, 
             time_in_state,
@@ -390,7 +348,7 @@ def update_step(state, key, t, params):
     signal_strength = jax.lax.cond(
         use_grid_pheromones,
         # True branch: Call the actual function directly
-        lambda state_op, map_op, strength_op: efficient_pheromone_detection_batch(
+        lambda state_op, map_op, strength_op: pheromone_detection_batch(
             state_op['position'], map_op, arena_radius, grid_resolution, 
             params['pheromones']['grid_radius_cells']
         ),

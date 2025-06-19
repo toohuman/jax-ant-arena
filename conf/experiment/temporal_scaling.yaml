@@ -1,0 +1,30 @@
+# @package _global_
+defaults:
+  - override /hydra: batch
+  - override /pheromones: stigmergy
+
+experiment_name: temporal_scaling
+
+experiment:
+  max_simulation_time: 20000
+  data_collection_interval: 1.0  # High resolution for temporal analysis
+  collect_pheromone_map: true  # Collect every 100 timesteps
+  
+  meta:
+    description: "Temporal evolution of clustering across system sizes"
+    goal: "Test scaling laws and growth dynamics"
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      +seed: range(1,6)
+      
+      # System size scaling (keeping density constant)
+      num_ants: 32,64,128,256,512
+      arena_radius: 5.66,8.0,11.31,16.0,22.63  # Scales as sqrt(N) for constant density
+      
+      # Optimal parameters from Experiment 1
+      pheromones.pheromone_threshold: 4.5
+      pheromones.pheromone_steepness: 4.0
+      pheromones.pheromone_decay_rate: 0.95

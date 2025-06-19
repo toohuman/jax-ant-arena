@@ -1,0 +1,31 @@
+# @package _global_
+defaults:
+  - override /hydra: batch
+  - override /pheromones: stigmergy
+
+experiment_name: phase_diagram
+
+experiment:
+  max_simulation_time: 5000
+  data_collection_interval: 10.0
+  collect_pheromone_map: false  # Save space, just collect metrics
+  
+  meta:
+    description: "Map the phase space of clustering behaviour"
+    goal: "Identify regions of parameter space producing distinct collective states"
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      +seed: range(1,11)  # 10 replicates
+      
+      # Core parameters defining the phase space
+      pheromones.pheromone_threshold: 1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0
+      pheromones.pheromone_steepness: 0.5,1.0,2.0,4.0,8.0,16.0
+      
+      # Fixed parameters for this sweep
+      num_ants: 128
+      mean_arrest_duration: 5.0
+      pheromones.pheromone_decay_rate: 0.95
+      pheromones.pheromone_deposition_rate: 1.0

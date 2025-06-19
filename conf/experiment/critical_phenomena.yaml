@@ -1,0 +1,31 @@
+# @package _global_
+defaults:
+  - override /hydra: batch
+  - override /pheromones: stigmergy
+
+experiment_name: critical_phenomena
+
+experiment:
+  max_simulation_time: 10000
+  data_collection_interval: 50.0
+  collect_pheromone_map: false
+  
+  meta:
+    description: "Search for critical transitions in clustering"
+    goal: "Identify if system shows percolation-like behaviour"
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      +seed: range(1,21)  # More replicates near critical point
+      
+      # Fine-grained sweep near expected transition
+      pheromones.pheromone_threshold: 3.0,3.2,3.4,3.6,3.8,4.0,4.2,4.4,4.6,4.8,5.0,5.2,5.4,5.6,5.8,6.0
+      
+      # Different system sizes to test universality
+      num_ants: 64,128,256
+      
+      # Fixed parameters
+      pheromones.pheromone_steepness: 4.0
+      mean_arrest_duration: 5.0
