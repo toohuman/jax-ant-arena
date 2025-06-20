@@ -199,9 +199,20 @@ def run_simulation_headless(cfg: DictConfig):
         hydra_cfg_obj = HydraConfig.get()
         save_path_base = hydra_cfg_obj.runtime.output_dir
         logger.info(f"Using Hydra output directory: {save_path_base}")
-    except ValueError: # HydraConfig is not initialized (e.g. script run outside Hydra context)
+    except ValueError: # HydraConfig is not initialised (e.g. script run outside Hydra context)
         logger.warning("HydraConfig not available. Defaulting to current working directory for saving.")
         save_path_base = os.getcwd()
+        hydra_cfg_obj = None  # Set to None so we can handle it in metadata
+
+    data_to_save_numpy = {}
+    for key_data, val_list in collected_data_lists.items():
+        if val_list: # Ensure list is not empty
+            if key_data == 'time': # Time is just a list of scalars
+                 data_to_save_numpy[key_data] = jnp.array(val_list)
+            else: # Other data are lists of arrays, stack them
+                 data_to_save_numpy[key_data] = jnp.stack(val_list, axis=0)
+        else:
+            data_to_save_numpy[key_data] = jnp.array([]) # Save empty array if no data collected
 
     metadata = {
         'params': OmegaConf.to_container(cfg, resolve=True),
@@ -215,8 +226,8 @@ def run_simulation_headless(cfg: DictConfig):
         },
         'data_shapes': {k: v.shape for k, v in data_to_save_numpy.items()},
         'hydra_info': {
-            'job_num': hydra_cfg_obj.job.num if hasattr(hydra_cfg_obj.job, 'num') else None,
-            'override_dirname': hydra_cfg_obj.job.override_dirname,
+            'job_num': hydra_cfg_obj.job.num if hydra_cfg_obj and hasattr(hydra_cfg_obj.job, 'num') else None,
+            'override_dirname': hydra_cfg_obj.job.override_dirname if hydra_cfg_obj else None,
         }
     }
 
@@ -225,17 +236,9 @@ def run_simulation_headless(cfg: DictConfig):
     with open(metadata_file, 'w') as f:
         json.dump(metadata, f, indent=2)
 
-    data_to_save_numpy = {}
-    for key_data, val_list in collected_data_lists.items():
-        if val_list: # Ensure list is not empty
-            if key_data == 'time': # Time is just a list of scalars
-                 data_to_save_numpy[key_data] = jnp.array(val_list)
-            else: # Other data are lists of arrays, stack them
-                 data_to_save_numpy[key_data] = jnp.stack(val_list, axis=0)
-        else:
-            data_to_save_numpy[key_data] = jnp.array([]) # Save empty array if no data collected
-
+    # Save the actual data
     output_file = os.path.join(save_path_base, f"{output_filename_base}.npz")
+    print(output_file)
     jnp.savez(output_file, **data_to_save_numpy)
     logger.info(f"Collected data saved to: {output_file}")
 
