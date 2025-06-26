@@ -1,10 +1,8 @@
 import os
-import sys
 import time # For performance timing
 import jax
 import jax.numpy as jnp
 import jax.random as random
-import json
 import hydra
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
@@ -232,9 +230,11 @@ def run_simulation_headless(cfg: DictConfig):
     }
 
     # Save metadata separately for easy loading
-    metadata_file = os.path.join(save_path_base, "metadata.json")
+    metadata_conf = OmegaConf.create(metadata)
+    metadata_file = os.path.join(save_path_base, "metadata.yaml")
     with open(metadata_file, 'w') as f:
-        json.dump(metadata, f, indent=2)
+        OmegaConf.save(metadata_conf, f)
+    logger.info(f"Metadata saved to: {metadata_file}")
 
     # Save the actual data
     output_file = os.path.join(save_path_base, f"{output_filename_base}.npz")

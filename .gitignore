@@ -16,7 +16,11 @@ __pycache__
 pixi.lock
 *.egg-info
 
+# Important private keys
+.env
+
 # Code Assistants
+AGENTS.md
 CLAUDE.md
 
 # MacOS
