@@ -223,7 +223,45 @@ class PhaseAnalyser:
         
         plt.tight_layout()
         return fig
-    
+
+    def plot_sample_configurations(self, df, df_results):
+        """Plot sample spatial configurations to visualize clustering."""
+        fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+        axes = axes.flatten()
+        
+        # Select representative parameter combinations
+        sample_params = [
+            (1.0, 0.5),   # Low threshold, low steepness
+            (5.0, 0.5),   # Medium threshold, low steepness
+            (10.0, 0.5),  # High threshold, low steepness
+            (1.0, 8.0),   # Low threshold, high steepness
+            (5.0, 8.0),   # Medium threshold, high steepness
+            (10.0, 8.0),  # High threshold, high steepness
+        ]
+        
+        for idx, (thresh, steep) in enumerate(sample_params):
+            ax = axes[idx]
+            
+            # Find a run with these parameters
+            mask = (df['threshold'] == thresh) & (df['steepness'] == steep)
+            if mask.any():
+                run = df[mask].iloc[0]  # Take first seed
+                positions = run['positions']
+                
+                # Plot positions
+                ax.scatter(positions[:, 0], positions[:, 1], alpha=0.6, s=50)
+                ax.set_xlim(-self.arena_radius, self.arena_radius)
+                ax.set_ylim(-self.arena_radius, self.arena_radius)
+                ax.set_aspect('equal')
+                ax.set_title(f'T={thresh}, k={steep}')
+                
+                # Add circle for arena boundary
+                circle = plt.Circle((0, 0), self.arena_radius, fill=False, linestyle='--', color='gray')
+                ax.add_patch(circle)
+        
+        plt.tight_layout()
+        return fig
+
     def _add_phase_boundaries(self, ax, data):
         """Identify and draw phase boundaries based on sharp transitions."""
         # Calculate gradient to find sharp transitions
@@ -356,6 +394,52 @@ def main():
     # Check behavioural states distribution
     print("\n=== Behavioural States Check ===")
     print(f"Sample behavioural states from last run: {df.iloc[-1]['behavioural_states'][:10]}")
+
+    # Analyse behavioural states distribution
+    print("\n=== Behavioural States Analysis ===")
+    for idx in range(min(3, len(df))):
+        states = df.iloc[idx]['behavioural_states']
+        unique, counts = np.unique(states, return_counts=True)
+        print(f"Run {idx} - States distribution:")
+        for state, count in zip(unique, counts):
+            print(f"  State {state}: {count} ants ({count/len(states)*100:.1f}%)")
+
+    # Create a histogram of LCF values to see the distribution
+    print("\n=== LCF Distribution ===")
+    lcf_values = df_results['largest_cluster_fraction']
+    print(f"Values > 0.1: {np.sum(lcf_values > 0.1)} runs")
+    print(f"Values > 0.5: {np.sum(lcf_values > 0.5)} runs")
+    print(f"Top 5 LCF values: {sorted(lcf_values, reverse=True)[:5]}")
+    
+    # Check clustering by threshold at fixed steepness
+    print("\n=== Clustering vs Threshold (at steepness=4.0) ===")
+    steep_4 = df_results[df_results['steepness'] == 4.0]
+    if not steep_4.empty:
+        thresh_grouped = steep_4.groupby('threshold')['largest_cluster_fraction'].agg(['mean', 'std'])
+        print(thresh_grouped)
+    
+    # Also create the sample configurations plot
+    fig_samples = analyser.plot_sample_configurations(df, df_results)
+    fig_samples.savefig('sample_configurations_exp1.pdf', dpi=300, bbox_inches='tight')
+    
+    
+    # Check if positions are changing over time
+    print("\n=== Temporal Analysis (first run) ===")
+    time_series = df.iloc[0]['time_series']
+    positions_t0 = time_series['positions'][0]
+    positions_tf = time_series['positions'][-1]
+    movement = np.linalg.norm(positions_tf - positions_t0, axis=1)
+    print(f"Mean displacement: {movement.mean():.2f}")
+    print(f"Max displacement: {movement.max():.2f}")
+    print(f"Stationary ants (moved < 1.0): {np.sum(movement < 1.0)}")
+    
+    # Find the run with highest LCF
+    max_lcf_idx = df_results['largest_cluster_fraction'].idxmax()
+    max_lcf_row = df_results.iloc[max_lcf_idx]
+    print(f"\n=== Run with highest clustering ===")
+    print(f"Parameters: T={max_lcf_row['threshold']}, k={max_lcf_row['steepness']}, seed={max_lcf_row['seed']}")
+    print(f"LCF: {max_lcf_row['largest_cluster_fraction']:.3f}, n_clusters: {max_lcf_row['n_clusters']}")
+    
 
     # Generate phase diagram
     print("Creating phase diagrams...")
