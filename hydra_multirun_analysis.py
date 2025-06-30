@@ -7,6 +7,8 @@ from scipy.spatial.distance import pdist, squareform
 from sklearn.cluster import DBSCAN
 from scipy.stats import sem
 import matplotlib.patches as patches
+from matplotlib.colors import LogNorm
+from scipy.ndimage import gaussian_filter
 
 # Set publication-quality defaults
 plt.rcParams['figure.dpi'] = 300
@@ -23,7 +25,6 @@ class PhaseAnalyser:
         self.ant_length = ant_length
         self.cluster_threshold = 2.5 * ant_length  # Clustering distance threshold
         self.arena_radius = None  # Will be set from metadata
-
 
     @staticmethod
     def find_latest_run(base_dir):
@@ -87,19 +88,6 @@ class PhaseAnalyser:
                     all_runs.append(run_data)
      
         return pd.DataFrame(all_runs)
-    
-    def _parse_hydra_dirname(self, dirname):
-        """Parse Hydra's override dirname to extract parameters."""
-        params = {}
-        # Split by comma and parse each override
-        for override in dirname.split(','):
-            if '=' in override:
-                key, value = override.split('=')
-                try:
-                    params[key] = float(value)
-                except ValueError:
-                    params[key] = value
-        return params
     
     def calculate_clustering_metrics(self, positions):
         """Calculate comprehensive clustering metrics for a single configuration."""
@@ -165,115 +153,203 @@ class PhaseAnalyser:
         nn_distances = np.min(distances, axis=1)
         return np.mean(nn_distances)
     
-    def create_phase_diagram(self, df_results):
-        """Create publication-quality phase diagrams."""
+    def create_enhanced_phase_diagram(self, df_results):
+        """Create enhanced phase diagrams with better visualisation."""
         # Aggregate metrics across seeds
         grouped = df_results.groupby(['threshold', 'steepness'])
         
-        # Calculate means and standard errors
-        metrics_to_plot = [
-            'largest_cluster_fraction',
-            'n_clusters', 
-            'clustering_coefficient',
-            'spatial_entropy'
-        ]
-        
-        fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
         axes = axes.flatten()
         
-        for idx, metric in enumerate(metrics_to_plot):
-            ax = axes[idx]
-            
-            # Pivot data for heatmap
-            pivot_mean = grouped[metric].mean().reset_index().pivot(
-                index='steepness', columns='threshold', values=metric
-            )
-            
-            # Create heatmap
-            im = ax.imshow(pivot_mean, aspect='auto', origin='lower', 
-                          cmap='viridis' if metric != 'spatial_entropy' else 'viridis_r')
-            
-            # Set ticks and labels
-            thresholds = sorted(df_results['threshold'].unique())
-            steepnesses = sorted(df_results['steepness'].unique())
-            
-            ax.set_xticks(range(len(thresholds)))
-            ax.set_xticklabels([f'{t:.1f}' for t in thresholds])
-            ax.set_yticks(range(len(steepnesses)))
-            ax.set_yticklabels([f'{s:.1f}' for s in steepnesses])
-            
-            ax.set_xlabel('Pheromone Threshold')
-            ax.set_ylabel('Pheromone Steepness')
-            
-            # Add colorbar
-            cbar = plt.colorbar(im, ax=ax)
-            
-            # Set title with nice formatting
-            titles = {
-                'largest_cluster_fraction': 'Largest Cluster Fraction',
-                'n_clusters': 'Number of Clusters',
-                'clustering_coefficient': 'Clustering Coefficient',
-                'spatial_entropy': 'Spatial Entropy (normalised)'
-            }
-            ax.set_title(titles[metric])
-            
-            # Add phase boundary lines if clear transitions exist
-            if metric == 'largest_cluster_fraction':
-                self._add_phase_boundaries(ax, pivot_mean)
+        # 1. Main phase diagram - Largest Cluster Fraction
+        ax = axes[0]
+        pivot_lcf = grouped['largest_cluster_fraction'].mean().reset_index().pivot(
+            index='steepness', columns='threshold', values='largest_cluster_fraction'
+        )
+        
+        # Use better colormap and add contours
+        im = ax.imshow(pivot_lcf, aspect='auto', origin='lower', 
+                      cmap='RdYlBu_r', vmin=0, vmax=1)
+        
+        # Add contour lines at phase boundaries
+        contours = ax.contour(pivot_lcf, levels=[0.1, 0.5, 0.9], 
+                             colors='black', linewidths=1.5, alpha=0.7)
+        ax.clabel(contours, inline=True, fontsize=8)
+        
+        # Set labels
+        thresholds = sorted(df_results['threshold'].unique())
+        steepnesses = sorted(df_results['steepness'].unique())
+        ax.set_xticks(range(len(thresholds)))
+        ax.set_xticklabels([f'{t:.0f}' for t in thresholds])
+        ax.set_yticks(range(len(steepnesses)))
+        ax.set_yticklabels([f'{s:.1f}' for s in steepnesses])
+        ax.set_xlabel('Pheromone Threshold')
+        ax.set_ylabel('Pheromone Steepness')
+        ax.set_title('Largest Cluster Fraction (with phase boundaries)')
+        plt.colorbar(im, ax=ax)
+        
+        # 2. Standard deviation plot
+        ax = axes[1]
+        pivot_std = grouped['largest_cluster_fraction'].std().reset_index().pivot(
+            index='steepness', columns='threshold', values='largest_cluster_fraction'
+        )
+        im = ax.imshow(pivot_std, aspect='auto', origin='lower', cmap='viridis')
+        ax.set_xticks(range(len(thresholds)))
+        ax.set_xticklabels([f'{t:.0f}' for t in thresholds])
+        ax.set_yticks(range(len(steepnesses)))
+        ax.set_yticklabels([f'{s:.1f}' for s in steepnesses])
+        ax.set_xlabel('Pheromone Threshold')
+        ax.set_ylabel('Pheromone Steepness')
+        ax.set_title('LCF Standard Deviation (phase transition regions)')
+        plt.colorbar(im, ax=ax)
+        
+        # 3. Number of clusters
+        ax = axes[2]
+        pivot_clusters = grouped['n_clusters'].mean().reset_index().pivot(
+            index='steepness', columns='threshold', values='n_clusters'
+        )
+        im = ax.imshow(pivot_clusters, aspect='auto', origin='lower', cmap='viridis')
+        ax.set_xticks(range(len(thresholds)))
+        ax.set_xticklabels([f'{t:.0f}' for t in thresholds])
+        ax.set_yticks(range(len(steepnesses)))
+        ax.set_yticklabels([f'{s:.1f}' for s in steepnesses])
+        ax.set_xlabel('Pheromone Threshold')
+        ax.set_ylabel('Pheromone Steepness')
+        ax.set_title('Mean Number of Clusters')
+        plt.colorbar(im, ax=ax)
+        
+        # 4. Phase classification
+        ax = axes[3]
+        phase_map = np.zeros_like(pivot_lcf)
+        for i in range(pivot_lcf.shape[0]):
+            for j in range(pivot_lcf.shape[1]):
+                lcf = pivot_lcf.iloc[i, j]
+                n_clust = pivot_clusters.iloc[i, j]
+                if lcf > 0.6:
+                    phase_map[i, j] = 3  # Single giant cluster
+                elif lcf > 0.3:
+                    phase_map[i, j] = 2  # Transitional
+                elif n_clust > 10:
+                    phase_map[i, j] = 1  # Multiple small clusters
+                else:
+                    phase_map[i, j] = 0  # Dispersed
+        
+        cmap = plt.cm.colors.ListedColormap(['darkblue', 'blue', 'yellow', 'red'])
+        im = ax.imshow(phase_map, aspect='auto', origin='lower', cmap=cmap)
+        ax.set_xticks(range(len(thresholds)))
+        ax.set_xticklabels([f'{t:.0f}' for t in thresholds])
+        ax.set_yticks(range(len(steepnesses)))
+        ax.set_yticklabels([f'{s:.1f}' for s in steepnesses])
+        ax.set_xlabel('Pheromone Threshold')
+        ax.set_ylabel('Pheromone Steepness')
+        ax.set_title('Phase Classification')
+        
+        # Add legend
+        from matplotlib.patches import Patch
+        legend_elements = [
+            Patch(facecolor='darkblue', label='Dispersed'),
+            Patch(facecolor='blue', label='Multiple clusters'),
+            Patch(facecolor='yellow', label='Transitional'),
+            Patch(facecolor='red', label='Giant cluster')
+        ]
+        ax.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.3, 1))
+        
+        # 5. Clustering coefficient
+        ax = axes[4]
+        pivot_cc = grouped['clustering_coefficient'].mean().reset_index().pivot(
+            index='steepness', columns='threshold', values='clustering_coefficient'
+        )
+        im = ax.imshow(pivot_cc, aspect='auto', origin='lower', cmap='viridis')
+        ax.set_xticks(range(len(thresholds)))
+        ax.set_xticklabels([f'{t:.0f}' for t in thresholds])
+        ax.set_yticks(range(len(steepnesses)))
+        ax.set_yticklabels([f'{s:.1f}' for s in steepnesses])
+        ax.set_xlabel('Pheromone Threshold')
+        ax.set_ylabel('Pheromone Steepness')
+        ax.set_title('Clustering Coefficient')
+        plt.colorbar(im, ax=ax)
+        
+        # 6. Line plots showing transitions
+        ax = axes[5]
+        # Plot LCF vs threshold for different steepness values
+        for s in [0.5, 1.0, 2.0, 4.0, 8.0]:
+            subset = df_results[df_results['steepness'] == s]
+            if not subset.empty:
+                thresh_grouped = subset.groupby('threshold')['largest_cluster_fraction']
+                means = thresh_grouped.mean()
+                stds = thresh_grouped.std()
+                ax.errorbar(means.index, means.values, yerr=stds.values, 
+                           label=f'k={s}', marker='o', capsize=3)
+        
+        ax.set_xlabel('Pheromone Threshold')
+        ax.set_ylabel('Largest Cluster Fraction')
+        ax.set_title('Phase Transitions for Different Steepness Values')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        ax.set_ylim(-0.1, 1.1)
         
         plt.tight_layout()
         return fig
-
+    
     def plot_sample_configurations(self, df, df_results):
         """Plot sample spatial configurations to visualize clustering."""
-        fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+        fig, axes = plt.subplots(3, 3, figsize=(15, 15))
         axes = axes.flatten()
         
-        # Select representative parameter combinations
-        sample_params = [
-            (1.0, 0.5),   # Low threshold, low steepness
-            (5.0, 0.5),   # Medium threshold, low steepness
-            (10.0, 0.5),  # High threshold, low steepness
-            (1.0, 8.0),   # Low threshold, high steepness
-            (5.0, 8.0),   # Medium threshold, high steepness
-            (10.0, 8.0),  # High threshold, high steepness
-        ]
+        # Find configurations with different clustering levels
+        # Sort by LCF to get a range
+        df_with_metrics = df.merge(
+            df_results[['threshold', 'steepness', 'seed', 'largest_cluster_fraction']], 
+            on=['threshold', 'steepness', 'seed']
+        )
+        df_sorted = df_with_metrics.sort_values('largest_cluster_fraction')
         
-        for idx, (thresh, steep) in enumerate(sample_params):
+        # Select 9 evenly spaced configurations
+        indices = np.linspace(0, len(df_sorted)-1, 9, dtype=int)
+        
+        for idx, ax_idx in enumerate(indices):
             ax = axes[idx]
+            run = df_sorted.iloc[ax_idx]
+            positions = run['positions']
+            states = run['behavioural_states']
             
-            # Find a run with these parameters
-            mask = (df['threshold'] == thresh) & (df['steepness'] == steep)
-            if mask.any():
-                run = df[mask].iloc[0]  # Take first seed
-                positions = run['positions']
-                
-                # Plot positions
-                ax.scatter(positions[:, 0], positions[:, 1], alpha=0.6, s=50)
-                ax.set_xlim(-self.arena_radius, self.arena_radius)
-                ax.set_ylim(-self.arena_radius, self.arena_radius)
-                ax.set_aspect('equal')
-                ax.set_title(f'T={thresh}, k={steep}')
-                
-                # Add circle for arena boundary
-                circle = plt.Circle((0, 0), self.arena_radius, fill=False, linestyle='--', color='gray')
-                ax.add_patch(circle)
+            # Color by behavioural state
+            colors = ['red' if s == 0 else 'blue' if s == 1 else 'green' for s in states]
+            
+            # Plot positions
+            ax.scatter(positions[:, 0], positions[:, 1], c=colors, alpha=0.6, s=50)
+            ax.set_xlim(-self.arena_radius, self.arena_radius)
+            ax.set_ylim(-self.arena_radius, self.arena_radius)
+            ax.set_aspect('equal')
+            
+            # Add title with parameters and LCF
+            ax.set_title(f'T={run["threshold"]:.1f}, k={run["steepness"]:.1f}\n' + 
+                        f'LCF={run["largest_cluster_fraction"]:.3f}')
+            
+            # Add circle for arena boundary
+            circle = plt.Circle((0, 0), self.arena_radius, fill=False, 
+                              linestyle='--', color='gray', alpha=0.5)
+            ax.add_patch(circle)
+            
+            # Remove tick labels for cleaner look
+            ax.set_xticks([])
+            ax.set_yticks([])
+        
+        # Add legend
+        from matplotlib.lines import Line2D
+        legend_elements = [
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='red', 
+                   markersize=10, label='Returning (0)'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='blue', 
+                   markersize=10, label='Exploring (1)'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='green', 
+                   markersize=10, label='Arrested (2)')
+        ]
+        fig.legend(handles=legend_elements, loc='upper center', 
+                  bbox_to_anchor=(0.5, 0.98), ncol=3)
         
         plt.tight_layout()
         return fig
-
-    def _add_phase_boundaries(self, ax, data):
-        """Identify and draw phase boundaries based on sharp transitions."""
-        # Calculate gradient to find sharp transitions
-        grad_x = np.gradient(data, axis=1)
-        grad_y = np.gradient(data, axis=0)
-        grad_mag = np.sqrt(grad_x**2 + grad_y**2)
-        
-        # Find high gradient regions (phase boundaries)
-        threshold = np.percentile(grad_mag, 90)
-        
-        # Could add contour lines here if clear boundaries exist
-        # ax.contour(grad_mag > threshold, levels=[0.5], colors='red', linewidths=2)
     
     def analyse_phase_transitions(self, df_results):
         """Detailed analysis of phase transitions."""
@@ -307,7 +383,7 @@ class PhaseAnalyser:
     
     def create_analysis_report(self, df_results):
         """Generate a comprehensive analysis report."""
-        print("=== Phase Diagram Analysis Report ===\n")
+        print("\n=== Phase Diagram Analysis Report ===\n")
         
         # Overall statistics
         print(f"Total runs analysed: {len(df_results)}")
@@ -319,35 +395,51 @@ class PhaseAnalyser:
         # Identify phases
         grouped = df_results.groupby(['threshold', 'steepness'])
         
-        # Phase classification based on metrics
+        print("Key findings:")
+        print("-" * 40)
+        
+        # Find parameter regions for each phase
+        dispersed = []
+        transitional = []
+        clustered = []
+        
         for (threshold, steepness), group in grouped:
             mean_lcf = group['largest_cluster_fraction'].mean()
             mean_clusters = group['n_clusters'].mean()
             
-            if mean_lcf < 0.2:
-                phase = "Dispersed"
-            elif mean_lcf > 0.8:
-                phase = "Single Giant Cluster"
-            elif mean_clusters > 5:
-                phase = "Multiple Clusters"
-            else:
-                phase = "Transitional"
-            
-            if phase in ["Single Giant Cluster", "Transitional"]:
-                print(f"T={threshold:.1f}, k={steepness:.1f}: {phase} (LCF={mean_lcf:.2f})")
+            if mean_lcf > 0.6:
+                clustered.append((threshold, steepness, mean_lcf))
+            elif mean_lcf > 0.3:
+                transitional.append((threshold, steepness, mean_lcf))
+            elif mean_lcf < 0.1:
+                dispersed.append((threshold, steepness, mean_lcf))
+        
+        print(f"\nHighly clustered phase (LCF > 0.6): {len(clustered)} parameter combinations")
+        if clustered:
+            print("  Examples:")
+            for t, s, lcf in clustered[:3]:
+                print(f"    T={t:.1f}, k={s:.1f}: LCF={lcf:.3f}")
+        
+        print(f"\nTransitional phase (0.3 < LCF < 0.6): {len(transitional)} parameter combinations")
+        if transitional:
+            print("  Examples:")
+            for t, s, lcf in transitional[:3]:
+                print(f"    T={t:.1f}, k={s:.1f}: LCF={lcf:.3f}")
+        
+        print(f"\nDispersed phase (LCF < 0.1): {len(dispersed)} parameter combinations")
         
         # Critical thresholds
         critical = self.analyse_phase_transitions(df_results)
         print("\nCritical thresholds (where LCF = 0.5):")
         for steepness, threshold in critical:
             print(f"  Steepness {steepness:.1f}: Critical threshold ≈ {threshold:.2f}")
+        
         if len(critical) == 0:
             print("  No critical thresholds found - examining LCF distribution:")
             # Show the range of LCF values
             grouped = df_results.groupby(['threshold', 'steepness'])
             lcf_summary = grouped['largest_cluster_fraction'].mean()
             print(f"  LCF range: {lcf_summary.min():.3f} to {lcf_summary.max():.3f}")
-            print("  This suggests the system may not exhibit clear phase transitions in this parameter range")
 
 # Main analysis workflow
 def main():
@@ -358,11 +450,10 @@ def main():
     # Load all experimental runs
     print("Loading experimental data...")
     df = analyser.load_experiment_data()
-    print(latest_dir)
-    print(df.head())
+    print(f"Loaded {len(df)} runs from {latest_dir}")
     
     # Calculate metrics for each run
-    print("Calculating clustering metrics...")
+    print("\nCalculating clustering metrics...")
     all_metrics = []
     for idx, row in df.iterrows():
         metrics = analyser.calculate_clustering_metrics(row['positions'])
@@ -374,83 +465,25 @@ def main():
         all_metrics.append(metrics)
     
     df_results = pd.DataFrame(all_metrics)
-
-    # Add debugging: print summary statistics
-    print("\n=== Clustering Metrics Summary ===")
-    print(df_results[['threshold', 'steepness', 'largest_cluster_fraction', 'n_clusters', 'clustering_coefficient']].describe())
     
-    # Print a sample of the results grouped by parameters
-    print("\n=== Sample Results by Parameters ===")
-    grouped = df_results.groupby(['threshold', 'steepness'])
-    sample_params = [(1.0, 0.5), (5.0, 4.0), (10.0, 16.0)]  # Low, medium, high
-    for t, s in sample_params:
-        if (t, s) in grouped.groups:
-            group = grouped.get_group((t, s))
-            print(f"\nThreshold={t}, Steepness={s}:")
-            print(f"  Mean LCF: {group['largest_cluster_fraction'].mean():.3f} ± {group['largest_cluster_fraction'].std():.3f}")
-            print(f"  Mean clusters: {group['n_clusters'].mean():.1f}")
-            print(f"  Mean clustering coeff: {group['clustering_coefficient'].mean():.3f}")
+    # Generate enhanced phase diagram
+    print("\nCreating enhanced phase diagrams...")
+    fig = analyser.create_enhanced_phase_diagram(df_results)
+    fig.savefig('phase_diagram_enhanced.pdf', dpi=300, bbox_inches='tight')
+    plt.close()
     
-    # Check behavioural states distribution
-    print("\n=== Behavioural States Check ===")
-    print(f"Sample behavioural states from last run: {df.iloc[-1]['behavioural_states'][:10]}")
-
-    # Analyse behavioural states distribution
-    print("\n=== Behavioural States Analysis ===")
-    for idx in range(min(3, len(df))):
-        states = df.iloc[idx]['behavioural_states']
-        unique, counts = np.unique(states, return_counts=True)
-        print(f"Run {idx} - States distribution:")
-        for state, count in zip(unique, counts):
-            print(f"  State {state}: {count} ants ({count/len(states)*100:.1f}%)")
-
-    # Create a histogram of LCF values to see the distribution
-    print("\n=== LCF Distribution ===")
-    lcf_values = df_results['largest_cluster_fraction']
-    print(f"Values > 0.1: {np.sum(lcf_values > 0.1)} runs")
-    print(f"Values > 0.5: {np.sum(lcf_values > 0.5)} runs")
-    print(f"Top 5 LCF values: {sorted(lcf_values, reverse=True)[:5]}")
-    
-    # Check clustering by threshold at fixed steepness
-    print("\n=== Clustering vs Threshold (at steepness=4.0) ===")
-    steep_4 = df_results[df_results['steepness'] == 4.0]
-    if not steep_4.empty:
-        thresh_grouped = steep_4.groupby('threshold')['largest_cluster_fraction'].agg(['mean', 'std'])
-        print(thresh_grouped)
-    
-    # Also create the sample configurations plot
+    # Create sample configuration plots
+    print("Creating sample configuration plots...")
     fig_samples = analyser.plot_sample_configurations(df, df_results)
-    fig_samples.savefig('sample_configurations_exp1.pdf', dpi=300, bbox_inches='tight')
-    
-    
-    # Check if positions are changing over time
-    print("\n=== Temporal Analysis (first run) ===")
-    time_series = df.iloc[0]['time_series']
-    positions_t0 = time_series['positions'][0]
-    positions_tf = time_series['positions'][-1]
-    movement = np.linalg.norm(positions_tf - positions_t0, axis=1)
-    print(f"Mean displacement: {movement.mean():.2f}")
-    print(f"Max displacement: {movement.max():.2f}")
-    print(f"Stationary ants (moved < 1.0): {np.sum(movement < 1.0)}")
-    
-    # Find the run with highest LCF
-    max_lcf_idx = df_results['largest_cluster_fraction'].idxmax()
-    max_lcf_row = df_results.iloc[max_lcf_idx]
-    print(f"\n=== Run with highest clustering ===")
-    print(f"Parameters: T={max_lcf_row['threshold']}, k={max_lcf_row['steepness']}, seed={max_lcf_row['seed']}")
-    print(f"LCF: {max_lcf_row['largest_cluster_fraction']:.3f}, n_clusters: {max_lcf_row['n_clusters']}")
-    
-
-    # Generate phase diagram
-    print("Creating phase diagrams...")
-    fig = analyser.create_phase_diagram(df_results)
-    fig.savefig('phase_diagram_exp1.pdf', dpi=300, bbox_inches='tight')
+    fig_samples.savefig('sample_configurations.pdf', dpi=300, bbox_inches='tight')
+    plt.close()
     
     # Generate analysis report
     analyser.create_analysis_report(df_results)
     
     # Save processed data
     df_results.to_csv('phase_diagram_metrics.csv', index=False)
+    print(f"\nSaved metrics to phase_diagram_metrics.csv")
     
     return df_results
 

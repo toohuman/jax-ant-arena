@@ -6,6 +6,8 @@ multirun
 processed_run_data
 visualisation
 *.log
+*.csv
+*.pdf
 
 # Python files and directories
 *.pyc
