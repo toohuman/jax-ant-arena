@@ -1,0 +1,33 @@
+# @package _global_
+defaults:
+  - override /hydra: batch
+  - override /pheromones: stigmergy
+
+experiment_name: "E2_Threshold-Deposition_Sweep"
+
+experiment:
+  max_simulation_time: 10000
+  data_collection_interval: 20.0
+  collect_pheromone_map: false # We can turn this off to save space for this larger run
+
+  meta:
+    description: "Sweep a lower range of deposition rates and the pheromone threshold to find the emergent clustering regime."
+    goal: "Pinpoint the parameters that allow for slow, progressive cluster formation rather than saturation."
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      +seed: range(1, 6) # 5 replicates is good for a more focused search
+
+      # --- Primary Sweep Parameters ---
+      # Explore a much lower range of deposition rates
+      pheromones.pheromone_deposition_rate: 0.05, 0.1, 0.2, 0.4
+
+      # Explore how the activation threshold interacts with a weaker signal
+      pheromones.pheromone_threshold: 1.5, 2.5, 3.5, 4.5
+
+      # --- Fixed Parameters for this Experiment ---
+      num_ants: 128
+      # Fix decay rate to a high-persistence value that showed some dynamics before
+      pheromones.pheromone_decay_rate: 0.999

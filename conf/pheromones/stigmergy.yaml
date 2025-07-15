@@ -11,6 +11,7 @@ pheromone_max_timestep: 15
 grid_resolution: 100 # Number of cells along each axis of the pheromone grid
 pheromone_decay_rate: 0.99 # Multiplicative decay factor per DT
 pheromone_deposition_rate: 1.0 # Scaling factor for deposition amount per DT
+pheromone_map_max_strength: ${eval:10.0 * ${.pheromone_threshold}}
 
 
 # Ignore thee. Just to avoid refactoring.

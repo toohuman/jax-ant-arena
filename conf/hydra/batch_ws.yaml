@@ -2,7 +2,7 @@
 run:
   dir: output/${pheromones.name}/${experiment_name}/${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M-%S}
 sweep:
-  dir: /data/michael/multirun/${pheromones.name}/${experiment_name}/${now:%Y-%m-%d_%H-%M-%S} #_${hydra.job.name} 
+  dir: /data/michael/ants/multirun/${pheromones.name}/${experiment_name}/${now:%Y-%m-%d_%H-%M-%S} #_${hydra.job.name} 
   # subdir: ${hydra.job.num}_${hydra.job.override_dirname}
 
 output_subdir: .hydra # Standard for batch runs

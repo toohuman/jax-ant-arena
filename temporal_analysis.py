@@ -99,6 +99,35 @@ class ArrestedStateAnalyser:
             n_close = np.sum(distances < self.cluster_threshold)
             n_total = len(distances) if len(distances) > 0 else 1
             temporal_metrics['clustering_coefficient'].append(n_close / n_total)
+             
+            # Calculate arrested-only clustering metrics
+            arrested_mask = (states == 2)
+            arrested_positions = positions[arrested_mask]
+            
+            if len(arrested_positions) >= 2:
+                # Cluster only arrested ants
+                clustering_arrested = DBSCAN(eps=self.cluster_threshold, min_samples=2).fit(arrested_positions)
+                labels_arrested = clustering_arrested.labels_
+                
+                n_clusters_arrested = len(set(labels_arrested)) - (1 if -1 in labels_arrested else 0)
+                cluster_sizes_arrested = []
+                for cluster_id in set(labels_arrested):
+                    if cluster_id != -1:
+                        cluster_sizes_arrested.append(np.sum(labels_arrested == cluster_id))
+                
+                # Arrested-only metrics
+                temporal_metrics['n_clusters_arrested'] = n_clusters_arrested
+                temporal_metrics['arrested_lcf'] = (
+                    max(cluster_sizes_arrested) / len(arrested_positions) 
+                    if cluster_sizes_arrested else 0
+                )
+                temporal_metrics['arrested_in_clusters'] = (
+                    sum(cluster_sizes_arrested) / len(positions)  # Fraction of ALL ants
+                )
+            else:
+                temporal_metrics['n_clusters_arrested'] = 0
+                temporal_metrics['arrested_lcf'] = 0
+                temporal_metrics['arrested_in_clusters'] = 0
             
             # State fractions
             n_ants = len(states)
@@ -381,7 +410,7 @@ class ArrestedStateAnalyser:
 def main():
     # Load data
     latest_dir = ArrestedStateAnalyser.find_latest_run(
-        "/data/michael/multirun/stigmergy/phase_diagram/"
+        "/data/michael/ants/multirun/stigmergy/phase_diagram/"
     )
     analyser = ArrestedStateAnalyser(latest_dir)
     

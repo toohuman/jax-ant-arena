@@ -444,7 +444,7 @@ class PhaseAnalyser:
 # Main analysis workflow
 def main():
     # Load data
-    latest_dir = PhaseAnalyser.find_latest_run("/data/michael/multirun/stigmergy/phase_diagram/")
+    latest_dir = PhaseAnalyser.find_latest_run("/data/michael/ants/multirun/stigmergy/phase_diagram/")
     analyser = PhaseAnalyser(latest_dir)
     
     # Load all experimental runs

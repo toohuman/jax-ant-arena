@@ -97,8 +97,9 @@ def pheromone_detection_batch(positions, pheromone_map, arena_radius, grid_resol
     return jnp.array(detections)
 
 def update_pheromone_map(current_map, positions, time_in_state, is_emitter, 
-                                  pheromone_max_timestep, max_pheromone_strength, 
-                                  deposition_rate, dt, arena_radius, grid_resolution, decay_rate):
+                         pheromone_max_timestep, max_pheromone_strength, 
+                         deposition_rate, dt, arena_radius, grid_resolution, decay_rate,
+                         pheromone_map_max_strength):
     """Drop-in replacement for pheromone map updates - handles everything internally"""
     # Apply decay
     decayed_map = current_map * decay_rate
@@ -116,7 +117,10 @@ def update_pheromone_map(current_map, positions, time_in_state, is_emitter,
         positions, deposition_amounts, arena_radius, grid_resolution
     )
     
-    return decayed_map + deposition_matrix
+    updated_map = decayed_map + deposition_matrix
+
+    # Clip the map to prevent runaway pheromone values
+    return jnp.clip(updated_map, 0.0, pheromone_map_max_strength)
 
 
 # Function to calculate individual pheromone strength based on time in state
@@ -263,6 +267,7 @@ def update_step(state, key, t, params):
         # EFFICIENT GRID MODE - everything handled in one call
         decay_rate = params['pheromones']['pheromone_decay_rate']
         deposition_rate = params['pheromones']['pheromone_deposition_rate']
+        pheromone_map_max_strength = params['pheromones']['pheromone_map_max_strength']
         
         updated_pheromone_map = update_pheromone_map(
             pheromone_map,  # Use the map from state directly
@@ -275,7 +280,8 @@ def update_step(state, key, t, params):
             dt,
             arena_radius, 
             grid_resolution, 
-            decay_rate
+            decay_rate,
+            pheromone_map_max_strength
         )
         # Placeholder for direct mode compatibility
         global_time_strength = 0.0

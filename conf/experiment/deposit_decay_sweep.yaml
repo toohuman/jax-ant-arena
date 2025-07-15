@@ -1,0 +1,40 @@
+# @package _global_
+defaults:
+  - override /hydra: batch
+  - override /pheromones: stigmergy
+
+experiment_name: "E1_Deposition-Decay_Sweep"
+
+experiment:
+  max_simulation_time: 10000
+  data_collection_interval: 20.0 # Let's not collect too frequently to save space
+  collect_pheromone_map: true    # Crucial for this first experiment to see what's happening
+
+  meta:
+    description: "Sweep deposition and decay rates to find the parameter region for emergent clustering."
+    goal: "Identify the balance between pheromone persistence and accumulation that leads to a slow, temporal clustering process."
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      # Use fewer replicates for this initial broad search to save time.
+      # We can increase this for the final paper.
+      +seed: range(1, 4) # 3 replicates
+
+      # --- Primary Sweep Parameters ---
+      # The core of our experiment. We need decay rates very close to 1.0
+      # to allow for slow accumulation over time.
+      pheromones.pheromone_decay_rate: 0.995, 0.998, 0.999, 0.9995
+
+      # This controls how quickly the signal builds.
+      pheromones.pheromone_deposition_rate: 0.5, 1.0, 2.0, 4.0
+
+      # --- Fixed Parameters for this Experiment ---
+      # We fix these to isolate the effects of deposition and decay.
+      # The values from your stigmergy.yaml are a good starting point.
+      num_ants: 128
+      pheromones.pheromone_threshold: 4.5
+      pheromones.pheromone_steepness: 4.0
+      pheromones.max_pheromone_strength: 0.9
+      mean_arrest_duration: 10.0 # Slightly longer to encourage stability once arrested
