@@ -1,0 +1,37 @@
+# @package _global_
+defaults:
+  - override /hydra: batch
+  - override /pheromones: stigmergy
+
+experiment_name: "E3_Transition_Search"
+
+experiment:
+  max_simulation_time: 10000
+  data_collection_interval: 20.0
+  collect_pheromone_map: false # Can be disabled to save space
+
+  meta:
+    description: "A focused sweep of lower deposition and faster decay rates to find the critical transition zone for clustering."
+    goal: "Identify the 'edge of chaos' where clustering is emergent and sensitive to parameters, rather than saturated or non-existent."
+
+hydra:
+  mode: MULTIRUN
+  sweeper:
+    params:
+      # Use a few more replicates for better statistics in this focused search
+      +seed: range(1, 6) # 5 replicates
+
+      # --- Primary Sweep Parameters ---
+      # Explore faster decay rates (lower values)
+      pheromones.pheromone_decay_rate: 0.98, 0.99, 0.995, 0.998
+
+      # Explore lower deposition rates
+      pheromones.pheromone_deposition_rate: 0.1, 0.2, 0.4, 0.8
+
+      # --- Fixed Parameters for this Experiment ---
+      # Keep these consistent with the previous sweep for valid comparison
+      num_ants: 128
+      pheromones.pheromone_threshold: 4.5
+      pheromones.pheromone_steepness: 4.0
+      pheromones.max_pheromone_strength: 0.9
+      mean_arrest_duration: 10.0

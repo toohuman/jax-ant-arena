@@ -4,6 +4,7 @@ experimental
 outputs
 multirun
 processed_run_data
+analysis_output*
 visualisation
 *.log
 *.csv

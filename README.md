@@ -75,6 +75,11 @@ These can be selected by overriding the `experiment` group in the command line. 
 ```
 If an experiment configuration also specifies a pheromone model, that will take precedence. Otherwise, the default from `config.yaml` or a command-line `pheromones=` override will be used.
 
+## Contribution Guidelines
+
+- For questions, contributions, or issues, please open an issue or pull request on GitHub.
+- Please do not use emojis in code comments to maintain a clean and consistent codebase.
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
@@ -82,7 +87,3 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 ## Citation
 
 If you use this tool in your research, please cite this repository. (Add citation details here if available.)
-
----
-
-For questions, contributions, or issues, please open an issue or pull request on GitHub.

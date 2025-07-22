@@ -21,11 +21,14 @@ except ImportError:
 # Configure logging
 logger = logging.getLogger(__name__) # Using __name__ is standard
 
+# Register the custom resolver for OmegaConf once, at the top level.
+OmegaConf.register_new_resolver("eval", eval)
+
 def run_simulation_headless(cfg: DictConfig):
     """
     Runs the ant simulation without visualisation and collects data.
     """
-    OmegaConf.register_new_resolver("eval", eval)
+    
 
     logger.info("Starting headless simulation run...")
     logger.info(f"CWD at start of run_simulation_headless: {os.getcwd()}")
