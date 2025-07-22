@@ -346,6 +346,12 @@ class AntSimulationVisualiser(QWidget):
         painter.end()
 
 
+# --- Register custom OmegaConf resolver (if not already registered) ---
+# This allows for simple arithmetic in the config files, e.g., ${eval:10 * 2}
+if not OmegaConf.has_resolver("eval"):
+    OmegaConf.register_new_resolver("eval", eval)
+
+
 @hydra.main(config_path="../conf", config_name="config", version_base=None)
 def main(cfg: DictConfig):
     print("Configuration used:")
